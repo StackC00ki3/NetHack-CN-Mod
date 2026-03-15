@@ -986,12 +986,12 @@ static int translate_vpline_args(const char *fmt, va_list args,
                 if (s) {
                     for (j = 0; j < fi->arg_count; ++j) {
                         if (strcmp(s, fi->args[j].arg_en) == 0) {
-                            char *local_zh = utf8_to_local_alloc(fi->args[j].arg_zh);
-                            if (local_zh && alloc_count < max_allocs) {
-                                *slot = local_zh;
-                                allocs[alloc_count++] = local_zh;
-                            } else {
-                                free(local_zh);
+                        if (alloc_count < max_allocs) {
+                                char *dup = _strdup(fi->args[j].arg_zh);
+                                if (dup) {
+                                    *slot = dup;
+                                    allocs[alloc_count++] = dup;
+                                }
                             }
                             break;
                         }
@@ -1827,7 +1827,6 @@ static void *resolve_vpline_by_signature(void) {
 static void __cdecl hook_vpline(const char *line, va_list the_args) {
     char *replaced = NULL;
     const char *translated = line;
-    char *local_encoded = NULL;
     const char *final_text = line;
     const zh_fmt_item *fi;
 
@@ -1846,22 +1845,16 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     /* Check for fmt/arg format first */
     fi = find_fmt_item(line);
     if (fi) {
-        char *local_fmt = utf8_to_local_alloc(fi->fmt_zh);
-        if (local_fmt) {
-            char *arg_allocs[MAX_FMT_ARG_ALLOCS];
-            int alloc_count, i;
+        char *arg_allocs[MAX_FMT_ARG_ALLOCS];
+        int alloc_count, i;
 
-            alloc_count = translate_vpline_args(line, the_args, fi,
-                                                arg_allocs, MAX_FMT_ARG_ALLOCS);
-            dump_intercepted_text("vpline.after", local_fmt, -1);
-            g_orig_vpline(local_fmt, the_args);
+        alloc_count = translate_vpline_args(line, the_args, fi,
+                                            arg_allocs, MAX_FMT_ARG_ALLOCS);
+        dump_intercepted_text("vpline.after", fi->fmt_zh, -1);
+        g_orig_vpline(fi->fmt_zh, the_args);
 
-            for (i = 0; i < alloc_count; ++i)
-                free(arg_allocs[i]);
-            free(local_fmt);
-        } else {
-            g_orig_vpline(line, the_args);
-        }
+        for (i = 0; i < alloc_count; ++i)
+            free(arg_allocs[i]);
         return;
     }
 
@@ -1877,16 +1870,11 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     final_text = translated;
 
     if (translated != line) {
-        local_encoded = utf8_to_local_alloc(translated);
-        if (local_encoded) {
-            final_text = local_encoded;
-        }
-        dump_intercepted_text("vpline.after", final_text, -1);
+        dump_intercepted_text("vpline.after", translated, -1);
     }
 
     g_orig_vpline(final_text, the_args);
 
-    free(local_encoded);
     free(replaced);
 }
 
