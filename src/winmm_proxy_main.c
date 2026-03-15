@@ -48,6 +48,18 @@ typedef struct {
     char *zh;
 } zh_runtime_item;
 
+typedef struct {
+    char *arg_en;
+    char *arg_zh;
+} zh_arg_item;
+
+typedef struct {
+    char *fmt_en;
+    char *fmt_zh;
+    zh_arg_item *args;
+    size_t arg_count;
+} zh_fmt_item;
+
 static HMODULE g_real_winmm = NULL;
 static PFN_PlaySoundA g_real_PlaySoundA = NULL;
 static PFN_PlaySoundW g_real_PlaySoundW = NULL;
@@ -67,6 +79,8 @@ static CRITICAL_SECTION g_dump_lock;
 static bool g_dump_lock_ready = false;
 static zh_runtime_item *g_runtime_map = NULL;
 static size_t g_runtime_map_count = 0;
+static zh_fmt_item *g_fmt_map = NULL;
+static size_t g_fmt_map_count = 0;
 
 static const zh_map_item g_builtin_zh_map[] = {
     {"Messages", "消息"},
@@ -106,6 +120,29 @@ static void free_runtime_map(void) {
     free(g_runtime_map);
     g_runtime_map = NULL;
     g_runtime_map_count = 0;
+}
+
+static void free_fmt_map(void) {
+    size_t i, j;
+
+    if (!g_fmt_map) {
+        g_fmt_map_count = 0;
+        return;
+    }
+
+    for (i = 0; i < g_fmt_map_count; ++i) {
+        free(g_fmt_map[i].fmt_en);
+        free(g_fmt_map[i].fmt_zh);
+        for (j = 0; j < g_fmt_map[i].arg_count; ++j) {
+            free(g_fmt_map[i].args[j].arg_en);
+            free(g_fmt_map[i].args[j].arg_zh);
+        }
+        free(g_fmt_map[i].args);
+    }
+
+    free(g_fmt_map);
+    g_fmt_map = NULL;
+    g_fmt_map_count = 0;
 }
 
 static char *dup_string(const char *src) {
@@ -166,6 +203,62 @@ static bool add_runtime_item_copy(const char *key, const char *value) {
 
 static bool is_meta_key(const char *key) {
     return key && key[0] == '_' && key[1] == '_';
+}
+
+static bool add_fmt_item(const char *en, cJSON *obj) {
+    cJSON *fmt_node, *arg_node, *arg_item;
+    zh_fmt_item *items;
+    zh_fmt_item *fi;
+    size_t new_count;
+
+    fmt_node = cJSON_GetObjectItemCaseSensitive(obj, "fmt");
+    if (!fmt_node || !cJSON_IsString(fmt_node) || !fmt_node->valuestring) {
+        return false;
+    }
+
+    new_count = g_fmt_map_count + 1;
+    items = (zh_fmt_item *) realloc(g_fmt_map, new_count * sizeof(zh_fmt_item));
+    if (!items) {
+        return false;
+    }
+
+    g_fmt_map = items;
+    fi = &g_fmt_map[g_fmt_map_count];
+    fi->fmt_en = dup_string(en);
+    fi->fmt_zh = dup_string(fmt_node->valuestring);
+    fi->args = NULL;
+    fi->arg_count = 0;
+
+    if (!fi->fmt_en || !fi->fmt_zh) {
+        free(fi->fmt_en);
+        free(fi->fmt_zh);
+        return false;
+    }
+
+    arg_node = cJSON_GetObjectItemCaseSensitive(obj, "arg");
+    if (arg_node && cJSON_IsObject(arg_node)) {
+        cJSON_ArrayForEach(arg_item, arg_node) {
+            zh_arg_item *arg_items;
+
+            if (!arg_item->string || !cJSON_IsString(arg_item)) {
+                continue;
+            }
+
+            arg_items = (zh_arg_item *) realloc(fi->args,
+                (fi->arg_count + 1) * sizeof(zh_arg_item));
+            if (!arg_items) {
+                continue;
+            }
+            fi->args = arg_items;
+            fi->args[fi->arg_count].arg_en = dup_string(arg_item->string);
+            fi->args[fi->arg_count].arg_zh = dup_string(
+                arg_item->valuestring ? arg_item->valuestring : "");
+            fi->arg_count++;
+        }
+    }
+
+    g_fmt_map_count = new_count;
+    return true;
 }
 
 static bool parse_runtime_map_json(char *json_text) {
@@ -245,11 +338,26 @@ static bool parse_runtime_map_json(char *json_text) {
         /* New format: top-level key is source file, value is object of entries */
         if (cJSON_IsObject(item)) {
             cJSON *sub_item = NULL;
+
+            /* Check if this is a fmt/arg object at top level */
+            if (cJSON_GetObjectItemCaseSensitive(item, "fmt")) {
+                add_fmt_item(item->string, item);
+                continue;
+            }
+
             cJSON_ArrayForEach(sub_item, item) {
                 ++item_count;
 
                 if (!sub_item->string || is_meta_key(sub_item->string)) {
                     continue;
+                }
+
+                /* Check if sub_item is a fmt/arg object */
+                if (cJSON_IsObject(sub_item)) {
+                    if (cJSON_GetObjectItemCaseSensitive(sub_item, "fmt")) {
+                        add_fmt_item(sub_item->string, sub_item);
+                        continue;
+                    }
                 }
 
                 if (!cJSON_IsString(sub_item) || !sub_item->valuestring) {
@@ -424,6 +532,30 @@ static bool has_alpha_len(const char *s, int len) {
     return false;
 }
 
+static bool is_alpha_byte(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+}
+
+/*
+ * Check word boundary: prevent matching a partial word.
+ *  - If needle starts with a letter, the char before must not be a letter.
+ *  - If needle ends   with a letter, the char after  must not be a letter.
+ * e.g. needle "go" won't match inside "gold" or "goes".
+ */
+static bool is_word_boundary_match(const char *src, const char *pos,
+                                   int needle_len, const char *end) {
+    if (needle_len > 0 && is_alpha_byte(pos[0])) {
+        if (pos > src && is_alpha_byte(pos[-1]))
+            return false;
+    }
+    if (needle_len > 0 && is_alpha_byte(pos[needle_len - 1])) {
+        const char *after = pos + needle_len;
+        if (after < end && is_alpha_byte(*after))
+            return false;
+    }
+    return true;
+}
+
 static char *replace_all_substr_len(const char *src, int src_len,
                                     const char *needle, int needle_len,
                                     const char *replacement, int repl_len) {
@@ -454,10 +586,11 @@ static char *replace_all_substr_len(const char *src, int src_len,
         return NULL;
     }
 
-    /* First pass: count occurrences using memcmp */
+    /* First pass: count occurrences using memcmp + word boundary */
     end = src + src_len;
     for (p = src; p <= end - needle_len; ++p) {
-        if (memcmp(p, needle, needle_len) == 0) {
+        if (memcmp(p, needle, needle_len) == 0
+            && is_word_boundary_match(src, p, needle_len, end)) {
             ++count;
         }
     }
@@ -477,7 +610,8 @@ static char *replace_all_substr_len(const char *src, int src_len,
     p = src;
     w = out;
     while (p < end) {
-        if (p <= end - needle_len && memcmp(p, needle, needle_len) == 0) {
+        if (p <= end - needle_len && memcmp(p, needle, needle_len) == 0
+            && is_word_boundary_match(src, p, needle_len, end)) {
             /* Found a match */
             memcpy(w, replacement, repl_len);
             w += repl_len;
@@ -668,6 +802,22 @@ static char *translate_text_contains_alloc(const char *src, int length) {
     return NULL;
 }
 
+static const zh_fmt_item *find_fmt_item(const char *fmt_en) {
+    size_t i;
+
+    if (!fmt_en) {
+        return NULL;
+    }
+
+    for (i = 0; i < g_fmt_map_count; ++i) {
+        if (strcmp(fmt_en, g_fmt_map[i].fmt_en) == 0) {
+            return &g_fmt_map[i];
+        }
+    }
+
+    return NULL;
+}
+
 static void init_dump_file(void) {
     char exe_path[MAX_PATH];
     char *slash;
@@ -746,6 +896,120 @@ typedef enum {
     VPL_LEN_T,
     VPL_LEN_CAP_L
 } vpline_len_mod;
+
+/*
+ * Walk the format string + va_list, translate %s args in-place via the arg map.
+ * On Windows va_list is a plain char*; va_copy shares the underlying memory,
+ * so writing through the copy modifies what g_orig_vpline will later read.
+ * Returns the number of heap strings stored in allocs[] (caller must free).
+ */
+#define MAX_FMT_ARG_ALLOCS 16
+
+static int translate_vpline_args(const char *fmt, va_list args,
+                                 const zh_fmt_item *fi,
+                                 char *allocs[], int max_allocs) {
+    va_list ap;
+    const char *p;
+    int alloc_count = 0;
+    vpline_len_mod len_mod;
+    char conv;
+    size_t j;
+
+    va_copy(ap, args);
+    p = fmt;
+
+    while (*p) {
+        len_mod = VPL_LEN_NONE;
+
+        if (*p != '%') { ++p; continue; }
+        ++p;
+        if (*p == '%') { ++p; continue; }
+
+        /* flags */
+        while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') ++p;
+        /* width */
+        if (*p == '*') { va_arg(ap, int); ++p; }
+        else { while (*p >= '0' && *p <= '9') ++p; }
+        /* precision */
+        if (*p == '.') {
+            ++p;
+            if (*p == '*') { va_arg(ap, int); ++p; }
+            else { while (*p >= '0' && *p <= '9') ++p; }
+        }
+        /* length modifier */
+        if (*p == 'h' && *(p + 1) == 'h') { len_mod = VPL_LEN_HH; p += 2; }
+        else if (*p == 'h') { len_mod = VPL_LEN_H; ++p; }
+        else if (*p == 'l' && *(p + 1) == 'l') { len_mod = VPL_LEN_LL; p += 2; }
+        else if (*p == 'l') { len_mod = VPL_LEN_L; ++p; }
+        else if (*p == 'j') { len_mod = VPL_LEN_J; ++p; }
+        else if (*p == 'z') { len_mod = VPL_LEN_Z; ++p; }
+        else if (*p == 't') { len_mod = VPL_LEN_T; ++p; }
+        else if (*p == 'L') { len_mod = VPL_LEN_CAP_L; ++p; }
+
+        conv = *p;
+        if (!conv) break;
+        ++p;
+
+        if (conv == 's') {
+            if (len_mod == VPL_LEN_L) {
+                va_arg(ap, const wchar_t *);
+            } else {
+                /* pointer to the slot BEFORE va_arg advances past it */
+                const char **slot = (const char **) ap;
+                const char *s = va_arg(ap, const char *);
+
+                if (s) {
+                    for (j = 0; j < fi->arg_count; ++j) {
+                        if (strcmp(s, fi->args[j].arg_en) == 0) {
+                            char *local_zh = utf8_to_local_alloc(fi->args[j].arg_zh);
+                            if (local_zh && alloc_count < max_allocs) {
+                                *slot = local_zh;
+                                allocs[alloc_count++] = local_zh;
+                            } else {
+                                free(local_zh);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        } else if (conv == 'd' || conv == 'i') {
+            if (len_mod == VPL_LEN_LL) va_arg(ap, long long);
+            else if (len_mod == VPL_LEN_L) va_arg(ap, long);
+            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t);
+            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
+            else va_arg(ap, int);
+        } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+            if (len_mod == VPL_LEN_LL) va_arg(ap, unsigned long long);
+            else if (len_mod == VPL_LEN_L) va_arg(ap, unsigned long);
+            else if (len_mod == VPL_LEN_J) va_arg(ap, uintmax_t);
+            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
+            else va_arg(ap, unsigned int);
+        } else if (conv == 'c') {
+            va_arg(ap, int);
+        } else if (conv == 'p') {
+            va_arg(ap, void *);
+        } else if (conv == 'n') {
+            if (len_mod == VPL_LEN_HH) va_arg(ap, signed char *);
+            else if (len_mod == VPL_LEN_H) va_arg(ap, short *);
+            else if (len_mod == VPL_LEN_L) va_arg(ap, long *);
+            else if (len_mod == VPL_LEN_LL) va_arg(ap, long long *);
+            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t *);
+            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t *);
+            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t *);
+            else va_arg(ap, int *);
+        } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
+                   conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
+            if (len_mod == VPL_LEN_CAP_L) va_arg(ap, long double);
+            else va_arg(ap, double);
+        }
+    }
+
+    va_end(ap);
+    return alloc_count;
+}
 
 static void dump_vpline_arguments(const char *fmt, va_list args) {
     const char *p;
@@ -1110,8 +1374,12 @@ static bool patch_iat_one(HMODULE module, const char *import_dll,
 
 static BOOL WINAPI hook_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
     dump_intercepted_text("SetWindowTextA", lpString, -1);
-    char *replaced = translate_text_contains_alloc(lpString, -1);
-    const char *translated = replaced ? replaced : translate_text(lpString, -1);
+    const char *translated = translate_text(lpString, -1);
+    char *replaced = NULL;
+    if (translated == lpString) {
+        replaced = translate_text_contains_alloc(lpString, -1);
+        translated = replaced ? replaced : lpString;
+    }
     char *local_encoded = NULL;
     const char *final_text = translated;
     BOOL ret;
@@ -1138,8 +1406,12 @@ static BOOL WINAPI hook_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
 static int WINAPI hook_DrawTextA(HDC hdc, LPCSTR lpchText, int cchText,
                                  LPRECT lprc, UINT format) {
     dump_intercepted_text("DrawTextA.before", lpchText, cchText);
-    char *replaced = translate_text_contains_alloc(lpchText, cchText);
-    const char *translated = replaced ? replaced : translate_text(lpchText, cchText);
+    const char *translated = translate_text(lpchText, cchText);
+    char *replaced = NULL;
+    if (translated == lpchText) {
+        replaced = translate_text_contains_alloc(lpchText, cchText);
+        translated = replaced ? replaced : lpchText;
+    }
     char *local_encoded = NULL;
     const char *final_text = translated;
     int out_len = cchText;
@@ -1171,8 +1443,12 @@ static int WINAPI hook_DrawTextA(HDC hdc, LPCSTR lpchText, int cchText,
 
 static BOOL WINAPI hook_TextOutA(HDC hdc, int x, int y, LPCSTR lpString, int c) {
     dump_intercepted_text("TextOutA", lpString, c);
-    char *replaced = translate_text_contains_alloc(lpString, c);
-    const char *translated = replaced ? replaced : translate_text(lpString, c);
+    const char *translated = translate_text(lpString, c);
+    char *replaced = NULL;
+    if (translated == lpString) {
+        replaced = translate_text_contains_alloc(lpString, c);
+        translated = replaced ? replaced : lpString;
+    }
     char *local_encoded = NULL;
     const char *final_text = translated;
     int out_len = c;
@@ -1528,6 +1804,7 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     const char *translated = line;
     char *local_encoded = NULL;
     const char *final_text = line;
+    const zh_fmt_item *fi;
 
     if (!g_orig_vpline) {
         return;
@@ -1541,8 +1818,33 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     dump_intercepted_text("vpline.before", line, -1);
     dump_vpline_arguments(line, the_args);
 
-    replaced = translate_text_contains_alloc(line, -1);
-    translated = replaced ? replaced : translate_text(line, -1);
+    /* Check for fmt/arg format first */
+    fi = find_fmt_item(line);
+    if (fi) {
+        char *local_fmt = utf8_to_local_alloc(fi->fmt_zh);
+        if (local_fmt) {
+            char *arg_allocs[MAX_FMT_ARG_ALLOCS];
+            int alloc_count, i;
+
+            alloc_count = translate_vpline_args(line, the_args, fi,
+                                                arg_allocs, MAX_FMT_ARG_ALLOCS);
+            dump_intercepted_text("vpline.after", local_fmt, -1);
+            g_orig_vpline(local_fmt, the_args);
+
+            for (i = 0; i < alloc_count; ++i)
+                free(arg_allocs[i]);
+            free(local_fmt);
+        } else {
+            g_orig_vpline(line, the_args);
+        }
+        return;
+    }
+
+    translated = translate_text(line, -1);
+    if (translated == line) {
+        replaced = translate_text_contains_alloc(line, -1);
+        translated = replaced ? replaced : line;
+    }
     final_text = translated;
 
     if (translated != line) {
@@ -1576,8 +1878,11 @@ static void __cdecl hook_putstr(int winid, int attr, const char *text) {
 
     dump_intercepted_text("putstr.before", text, -1);
 
-    replaced = translate_text_contains_alloc(text, -1);
-    translated = replaced ? replaced : translate_text(text, -1);
+    translated = translate_text(text, -1);
+    if (translated == text) {
+        replaced = translate_text_contains_alloc(text, -1);
+        translated = replaced ? replaced : text;
+    }
     final_text = translated;
 
     if (translated != text) {
@@ -1686,6 +1991,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             g_sym_initialized = false;
         }
         free_runtime_map();
+        free_fmt_map();
         if (g_dump_file != INVALID_HANDLE_VALUE) {
             CloseHandle(g_dump_file);
             g_dump_file = INVALID_HANDLE_VALUE;
