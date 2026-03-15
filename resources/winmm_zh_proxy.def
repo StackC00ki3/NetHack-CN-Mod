@@ -1,0 +1,6 @@
+LIBRARY winmm
+EXPORTS
+    PlaySoundA
+    PlaySoundW
+    sndPlaySoundA
+    sndPlaySoundW

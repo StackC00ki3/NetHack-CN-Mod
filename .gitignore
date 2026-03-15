@@ -1,0 +1,53 @@
+# CMake build trees
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+build.ninja
+rules.ninja
+
+# Generic build artifacts
+*.o
+*.obj
+*.lo
+*.a
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# Resource/compiler outputs
+*.res
+*.idb
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.orig
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Tool outputs
+output/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.iml
+
+# OS junk
+.DS_Store
+Thumbs.db
+Desktop.ini
