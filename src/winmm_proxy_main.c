@@ -5,8 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
+
+#include <dbghelp.h>
 
 #include "cJSON.h"
+#include "MinHook.h"
 #include "resource.h"
 
 /*
@@ -29,6 +33,9 @@ typedef int (WINAPI *PFN_DrawTextA)(HDC, LPCSTR, int, LPRECT, UINT);
 
 typedef BOOL (WINAPI *PFN_TextOutA)(HDC, int, int, LPCSTR, int);
 
+typedef void (__cdecl *PFN_vpline)(const char *, va_list);
+typedef void (__cdecl *PFN_putstr)(int, int, const char *);
+
 #define WINMM_EXPORT __declspec(dllexport)
 
 typedef struct {
@@ -50,6 +57,9 @@ static PFN_sndPlaySoundW g_real_sndPlaySoundW = NULL;
 static PFN_SetWindowTextA g_orig_SetWindowTextA = NULL;
 static PFN_DrawTextA g_orig_DrawTextA = NULL;
 static PFN_TextOutA g_orig_TextOutA = NULL;
+
+static PFN_vpline g_orig_vpline = NULL;
+static PFN_putstr g_orig_putstr = NULL;
 
 static LONG g_init_state = 0;
 static HANDLE g_dump_file = INVALID_HANDLE_VALUE;
@@ -141,6 +151,23 @@ static bool add_runtime_item(char *key, char *value) {
     return true;
 }
 
+static bool add_runtime_item_copy(const char *key, const char *value) {
+    char *key_copy;
+    char *value_copy;
+
+    if (!key || !value) {
+        return false;
+    }
+
+    key_copy = dup_string(key);
+    value_copy = dup_string(value);
+    return add_runtime_item(key_copy, value_copy);
+}
+
+static bool is_meta_key(const char *key) {
+    return key && key[0] == '_' && key[1] == '_';
+}
+
 static bool parse_runtime_map_json(char *json_text) {
     cJSON *root = NULL;
     cJSON *item = NULL;
@@ -177,8 +204,6 @@ static bool parse_runtime_map_json(char *json_text) {
     }
 
     cJSON_ArrayForEach(item, root) {
-        char *key_copy;
-        char *value_copy;
         char debug_buf[256];
         int debug_len;
 
@@ -195,37 +220,83 @@ static bool parse_runtime_map_json(char *json_text) {
             }
             continue;
         }
-        if (item->string[0] == '_' && item->string[1] == '_') {
+        if (is_meta_key(item->string)) {
             continue;
         }
-        if (!cJSON_IsString(item) || !item->valuestring) {
-            debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                     FILE_SHARE_READ, NULL,
-                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (debug_file != INVALID_HANDLE_VALUE) {
-                debug_len = sprintf(debug_buf, "Item %d: [%s] is not string or no value\n", item_count, item->string);
-                WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-                CloseHandle(debug_file);
+
+        /* Backward compatibility: flat key-value map */
+        if (cJSON_IsString(item) && item->valuestring) {
+            if (!add_runtime_item_copy(item->string, item->valuestring)) {
+                debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
+                                         FILE_SHARE_READ, NULL,
+                                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (debug_file != INVALID_HANDLE_VALUE) {
+                    debug_len = sprintf(debug_buf, "Item %d: add_runtime_item failed\n", item_count);
+                    WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
+                    CloseHandle(debug_file);
+                }
+                cJSON_Delete(root);
+                free_runtime_map();
+                return false;
             }
-            cJSON_Delete(root);
-            free_runtime_map();
-            return false;
+            continue;
         }
 
-        key_copy = dup_string(item->string);
-        value_copy = dup_string(item->valuestring);
-        if (!add_runtime_item(key_copy, value_copy)) {
+        /* New format: top-level key is source file, value is object of entries */
+        if (cJSON_IsObject(item)) {
+            cJSON *sub_item = NULL;
+            cJSON_ArrayForEach(sub_item, item) {
+                ++item_count;
+
+                if (!sub_item->string || is_meta_key(sub_item->string)) {
+                    continue;
+                }
+
+                if (!cJSON_IsString(sub_item) || !sub_item->valuestring) {
+                    debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
+                                             FILE_SHARE_READ, NULL,
+                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (debug_file != INVALID_HANDLE_VALUE) {
+                        debug_len = sprintf(debug_buf,
+                                            "Item %d: [%s.%s] is not string or no value\n",
+                                            item_count, item->string, sub_item->string);
+                        WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
+                        CloseHandle(debug_file);
+                    }
+                    cJSON_Delete(root);
+                    free_runtime_map();
+                    return false;
+                }
+
+                if (!add_runtime_item_copy(sub_item->string, sub_item->valuestring)) {
+                    debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
+                                             FILE_SHARE_READ, NULL,
+                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+                    if (debug_file != INVALID_HANDLE_VALUE) {
+                        debug_len = sprintf(debug_buf,
+                                            "Item %d: add_runtime_item failed for [%s.%s]\n",
+                                            item_count, item->string, sub_item->string);
+                        WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
+                        CloseHandle(debug_file);
+                    }
+                    cJSON_Delete(root);
+                    free_runtime_map();
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        /* Unknown top-level value type: skip to stay tolerant */
+        {
             debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
                                      FILE_SHARE_READ, NULL,
                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
             if (debug_file != INVALID_HANDLE_VALUE) {
-                debug_len = sprintf(debug_buf, "Item %d: add_runtime_item failed\n", item_count);
+                debug_len = sprintf(debug_buf, "Item %d: [%s] has unsupported value type\n", item_count, item->string);
                 WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
                 CloseHandle(debug_file);
             }
-            cJSON_Delete(root);
-            free_runtime_map();
-            return false;
         }
     }
 
@@ -560,11 +631,11 @@ static bool should_translate(const char *src, int length) {
     }
 
     /* avoid touching format strings and short symbols/glyph output */
-    for (i = 0; i < length; ++i) {
-        if (src[i] == '%') {
-            return false;
-        }
-    }
+    // for (i = 0; i < length; ++i) {
+    //     if (src[i] == '%') {
+    //         return false;
+    //     }
+    // }
 
     return true;
 }
@@ -662,6 +733,253 @@ static void dump_intercepted_text(const char *api_name, const char *text, int le
     WriteFile(g_dump_file, "\r\n", 2, &written, NULL);
 
     LeaveCriticalSection(&g_dump_lock);
+}
+
+typedef enum {
+    VPL_LEN_NONE = 0,
+    VPL_LEN_HH,
+    VPL_LEN_H,
+    VPL_LEN_L,
+    VPL_LEN_LL,
+    VPL_LEN_J,
+    VPL_LEN_Z,
+    VPL_LEN_T,
+    VPL_LEN_CAP_L
+} vpline_len_mod;
+
+static void dump_vpline_arguments(const char *fmt, va_list args) {
+    const char *p;
+    va_list ap;
+    int arg_index = 0;
+    DWORD written;
+
+    if (!g_dump_lock_ready || g_dump_file == INVALID_HANDLE_VALUE || !fmt) {
+        return;
+    }
+
+    va_copy(ap, args);
+
+    EnterCriticalSection(&g_dump_lock);
+
+    WriteFile(g_dump_file, "[vpline.fmt] ", 13, &written, NULL);
+    WriteFile(g_dump_file, fmt, (DWORD) strlen(fmt), &written, NULL);
+    WriteFile(g_dump_file, "\r\n", 2, &written, NULL);
+
+    p = fmt;
+    while (*p) {
+        const char *spec_start;
+        char conv;
+        vpline_len_mod len_mod = VPL_LEN_NONE;
+
+        if (*p != '%') {
+            ++p;
+            continue;
+        }
+
+        spec_start = p;
+        ++p;
+
+        if (*p == '%') {
+            ++p;
+            continue;
+        }
+
+        while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') {
+            ++p;
+        }
+
+        if (*p == '*') {
+            int width = va_arg(ap, int);
+            char line[160];
+            int n;
+
+            ++arg_index;
+            n = _snprintf(line, sizeof(line), "[vpline.arg%d] width=* -> %d\r\n", arg_index, width);
+            if (n > 0) {
+                if (n > (int) sizeof(line)) {
+                    n = (int) sizeof(line);
+                }
+                WriteFile(g_dump_file, line, (DWORD) n, &written, NULL);
+            }
+            ++p;
+        } else {
+            while (*p >= '0' && *p <= '9') {
+                ++p;
+            }
+        }
+
+        if (*p == '.') {
+            ++p;
+            if (*p == '*') {
+                int prec = va_arg(ap, int);
+                char line[160];
+                int n;
+
+                ++arg_index;
+                n = _snprintf(line, sizeof(line), "[vpline.arg%d] precision=* -> %d\r\n", arg_index, prec);
+                if (n > 0) {
+                    if (n > (int) sizeof(line)) {
+                        n = (int) sizeof(line);
+                    }
+                    WriteFile(g_dump_file, line, (DWORD) n, &written, NULL);
+                }
+                ++p;
+            } else {
+                while (*p >= '0' && *p <= '9') {
+                    ++p;
+                }
+            }
+        }
+
+        if (*p == 'h' && *(p + 1) == 'h') {
+            len_mod = VPL_LEN_HH;
+            p += 2;
+        } else if (*p == 'h') {
+            len_mod = VPL_LEN_H;
+            ++p;
+        } else if (*p == 'l' && *(p + 1) == 'l') {
+            len_mod = VPL_LEN_LL;
+            p += 2;
+        } else if (*p == 'l') {
+            len_mod = VPL_LEN_L;
+            ++p;
+        } else if (*p == 'j') {
+            len_mod = VPL_LEN_J;
+            ++p;
+        } else if (*p == 'z') {
+            len_mod = VPL_LEN_Z;
+            ++p;
+        } else if (*p == 't') {
+            len_mod = VPL_LEN_T;
+            ++p;
+        } else if (*p == 'L') {
+            len_mod = VPL_LEN_CAP_L;
+            ++p;
+        }
+
+        conv = *p;
+        if (!conv) {
+            break;
+        }
+        ++p;
+
+        {
+            char spec[48];
+            size_t spec_len = (size_t) (p - spec_start);
+            char line[320];
+            int n;
+
+            if (spec_len >= sizeof(spec)) {
+                spec_len = sizeof(spec) - 1;
+            }
+            memcpy(spec, spec_start, spec_len);
+            spec[spec_len] = '\0';
+
+            if (conv == 'd' || conv == 'i') {
+                long long v = 0;
+                ++arg_index;
+                if (len_mod == VPL_LEN_LL) {
+                    v = va_arg(ap, long long);
+                } else if (len_mod == VPL_LEN_L) {
+                    v = va_arg(ap, long);
+                } else if (len_mod == VPL_LEN_J) {
+                    v = va_arg(ap, intmax_t);
+                } else if (len_mod == VPL_LEN_T) {
+                    v = va_arg(ap, ptrdiff_t);
+                } else if (len_mod == VPL_LEN_Z) {
+                    v = (long long) va_arg(ap, size_t);
+                } else {
+                    v = va_arg(ap, int);
+                }
+                n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> %lld\r\n", arg_index, spec, v);
+            } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+                unsigned long long v = 0;
+                ++arg_index;
+                if (len_mod == VPL_LEN_LL) {
+                    v = va_arg(ap, unsigned long long);
+                } else if (len_mod == VPL_LEN_L) {
+                    v = va_arg(ap, unsigned long);
+                } else if (len_mod == VPL_LEN_J) {
+                    v = va_arg(ap, uintmax_t);
+                } else if (len_mod == VPL_LEN_T) {
+                    v = (unsigned long long) va_arg(ap, ptrdiff_t);
+                } else if (len_mod == VPL_LEN_Z) {
+                    v = va_arg(ap, size_t);
+                } else {
+                    v = va_arg(ap, unsigned int);
+                }
+                n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> %llu\r\n", arg_index, spec, v);
+            } else if (conv == 'c') {
+                int ch = va_arg(ap, int);
+                ++arg_index;
+                if (ch >= 32 && ch <= 126) {
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> '%c' (%d)\r\n", arg_index, spec, (char) ch, ch);
+                } else {
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> (%d)\r\n", arg_index, spec, ch);
+                }
+            } else if (conv == 's') {
+                ++arg_index;
+                if (len_mod == VPL_LEN_L) {
+                    const wchar_t *ws = va_arg(ap, const wchar_t *);
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> wide_str@%p\r\n", arg_index, spec, (const void *) ws);
+                } else {
+                    const char *s = va_arg(ap, const char *);
+                    if (!s) {
+                        n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> (null)\r\n", arg_index, spec);
+                    } else {
+                        n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> \"%.120s\"\r\n", arg_index, spec, s);
+                    }
+                }
+            } else if (conv == 'p') {
+                void *ptr = va_arg(ap, void *);
+                ++arg_index;
+                n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> %p\r\n", arg_index, spec, ptr);
+            } else if (conv == 'n') {
+                void *ptr;
+                ++arg_index;
+                if (len_mod == VPL_LEN_HH) {
+                    ptr = (void *) va_arg(ap, signed char *);
+                } else if (len_mod == VPL_LEN_H) {
+                    ptr = (void *) va_arg(ap, short *);
+                } else if (len_mod == VPL_LEN_L) {
+                    ptr = (void *) va_arg(ap, long *);
+                } else if (len_mod == VPL_LEN_LL) {
+                    ptr = (void *) va_arg(ap, long long *);
+                } else if (len_mod == VPL_LEN_J) {
+                    ptr = (void *) va_arg(ap, intmax_t *);
+                } else if (len_mod == VPL_LEN_Z) {
+                    ptr = (void *) va_arg(ap, size_t *);
+                } else if (len_mod == VPL_LEN_T) {
+                    ptr = (void *) va_arg(ap, ptrdiff_t *);
+                } else {
+                    ptr = (void *) va_arg(ap, int *);
+                }
+                n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> store_count@%p\r\n", arg_index, spec, ptr);
+            } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
+                       conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
+                ++arg_index;
+                if (len_mod == VPL_LEN_CAP_L) {
+                    long double lv = va_arg(ap, long double);
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> %.10Lg\r\n", arg_index, spec, lv);
+                } else {
+                    double dv = va_arg(ap, double);
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> %.10g\r\n", arg_index, spec, dv);
+                }
+            } else {
+                n = _snprintf(line, sizeof(line), "[vpline.arg?] unsupported spec %s\r\n", spec);
+            }
+
+            if (n > 0) {
+                if (n > (int) sizeof(line)) {
+                    n = (int) sizeof(line);
+                }
+                WriteFile(g_dump_file, line, (DWORD) n, &written, NULL);
+            }
+        }
+    }
+
+    LeaveCriticalSection(&g_dump_lock);
+    va_end(ap);
 }
 
 static void init_real_winmm(void) {
@@ -798,7 +1116,6 @@ static BOOL WINAPI hook_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
     const char *final_text = translated;
     BOOL ret;
 
-    /* Convert UTF-8 to local codepage if text was translated */
     if (translated != lpString) {
         local_encoded = utf8_to_local_alloc(translated);
         if (local_encoded) {
@@ -828,7 +1145,6 @@ static int WINAPI hook_DrawTextA(HDC hdc, LPCSTR lpchText, int cchText,
     int out_len = cchText;
     int ret;
 
-    /* Convert UTF-8 to local codepage if text was translated */
     if (translated != lpchText) {
         dump_intercepted_text("DrawTextA.after", translated, -1);
         local_encoded = utf8_to_local_alloc(translated);
@@ -862,7 +1178,6 @@ static BOOL WINAPI hook_TextOutA(HDC hdc, int x, int y, LPCSTR lpString, int c) 
     int out_len = c;
     BOOL ret;
 
-    /* Convert UTF-8 to local codepage if text was translated */
     if (translated != lpString) {
         local_encoded = utf8_to_local_alloc(translated);
         if (local_encoded) {
@@ -900,6 +1215,423 @@ static void install_text_hooks(void) {
                   (void **) &g_orig_DrawTextA);
     patch_iat_one(exe, "GDI32.dll", "TextOutA", (void *) hook_TextOutA,
                   (void **) &g_orig_TextOutA);
+}
+
+typedef struct {
+    const char *exact_name;
+    const char *contains_name;
+    DWORD64 address;
+} hook_symbol_ctx;
+
+static bool g_sym_initialized = false;
+
+static BOOL CALLBACK enum_hook_symbol(PSYMBOL_INFO pSymInfo, ULONG SymbolSize, PVOID userContext) {
+    hook_symbol_ctx *ctx = (hook_symbol_ctx *) userContext;
+    (void) SymbolSize;
+
+    if (!ctx || !pSymInfo || !pSymInfo->Name) {
+        return TRUE;
+    }
+
+    if (ctx->exact_name && strcmp(pSymInfo->Name, ctx->exact_name) == 0) {
+        ctx->address = pSymInfo->Address;
+        return FALSE;
+    }
+
+    if (!ctx->address && ctx->contains_name && strstr(pSymInfo->Name, ctx->contains_name) != NULL) {
+        ctx->address = pSymInfo->Address;
+    }
+
+    return TRUE;
+}
+
+static bool ensure_symbol_engine(void) {
+    HANDLE process;
+
+    if (g_sym_initialized) {
+        return true;
+    }
+
+    process = GetCurrentProcess();
+    SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
+    if (!SymInitialize(process, NULL, TRUE)) {
+        return false;
+    }
+
+    g_sym_initialized = true;
+    return true;
+}
+
+static void *resolve_symbol_address(const char *exact_name, const char *contains_name, const char *search_pattern) {
+    HANDLE process = GetCurrentProcess();
+    HMODULE exe = GetModuleHandleW(NULL);
+    hook_symbol_ctx ctx;
+
+    if (!exe) {
+        return NULL;
+    }
+
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.exact_name = exact_name;
+    ctx.contains_name = contains_name;
+
+    if (!ensure_symbol_engine()) {
+        return NULL;
+    }
+
+    SymEnumSymbols(process, (ULONG64) (ULONG_PTR) exe, search_pattern, enum_hook_symbol, &ctx);
+
+    return (void *) (ULONG_PTR) ctx.address;
+}
+
+static void log_hook_message(const char *fmt, ...) {
+    char line[512];
+    int n;
+    DWORD written;
+    va_list ap;
+
+    if (!fmt || !g_dump_lock_ready || g_dump_file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    va_start(ap, fmt);
+    n = _vsnprintf(line, sizeof(line) - 3, fmt, ap);
+    va_end(ap);
+
+    if (n < 0) {
+        n = (int) sizeof(line) - 3;
+    }
+
+    line[n++] = '\r';
+    line[n++] = '\n';
+    line[n] = '\0';
+
+    EnterCriticalSection(&g_dump_lock);
+    WriteFile(g_dump_file, line, (DWORD) n, &written, NULL);
+    LeaveCriticalSection(&g_dump_lock);
+}
+
+static void *find_pattern_in_range(const uint8_t *base, size_t size,
+                                   const uint8_t *pattern, const char *mask, size_t pattern_len) {
+    size_t i;
+    size_t j;
+
+    if (!base || !pattern || !mask || pattern_len == 0 || size < pattern_len) {
+        return NULL;
+    }
+
+    for (i = 0; i <= size - pattern_len; ++i) {
+        bool matched = true;
+        for (j = 0; j < pattern_len; ++j) {
+            if (mask[j] != '?' && base[i + j] != pattern[j]) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            return (void *) (base + i);
+        }
+    }
+
+    return NULL;
+}
+
+static int hex_nibble(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return -1;
+}
+
+static bool compile_pattern_string(const char *pattern_text,
+                                   uint8_t **pattern_out,
+                                   char **mask_out,
+                                   size_t *pattern_len_out) {
+    size_t text_len;
+    uint8_t *pattern;
+    char *mask;
+    size_t out_len = 0;
+    size_t i = 0;
+
+    if (!pattern_text || !pattern_out || !mask_out || !pattern_len_out) {
+        return false;
+    }
+
+    *pattern_out = NULL;
+    *mask_out = NULL;
+    *pattern_len_out = 0;
+
+    text_len = strlen(pattern_text);
+    if (text_len == 0) {
+        return false;
+    }
+
+    pattern = (uint8_t *) malloc(text_len + 1);
+    mask = (char *) malloc(text_len + 1);
+    if (!pattern || !mask) {
+        free(pattern);
+        free(mask);
+        return false;
+    }
+
+    while (i < text_len) {
+        int hi;
+        int lo;
+
+        while (i < text_len && (pattern_text[i] == ' ' || pattern_text[i] == '\t' || pattern_text[i] == '\r' ||
+                                pattern_text[i] == '\n')) {
+            ++i;
+        }
+        if (i >= text_len) {
+            break;
+        }
+
+        if (pattern_text[i] == '?') {
+            mask[out_len] = '?';
+            pattern[out_len] = 0;
+            ++out_len;
+            ++i;
+            if (i < text_len && pattern_text[i] == '?') {
+                ++i;
+            }
+            continue;
+        }
+
+        if (i + 1 >= text_len) {
+            free(pattern);
+            free(mask);
+            return false;
+        }
+
+        hi = hex_nibble(pattern_text[i]);
+        lo = hex_nibble(pattern_text[i + 1]);
+        if (hi < 0 || lo < 0) {
+            free(pattern);
+            free(mask);
+            return false;
+        }
+
+        pattern[out_len] = (uint8_t) ((hi << 4) | lo);
+        mask[out_len] = 'x';
+        ++out_len;
+        i += 2;
+    }
+
+    if (out_len == 0) {
+        free(pattern);
+        free(mask);
+        return false;
+    }
+
+    *pattern_out = pattern;
+    *mask_out = mask;
+    *pattern_len_out = out_len;
+    return true;
+}
+
+static void *find_pattern_in_module_code(HMODULE module, const char *pattern_text) {
+    PIMAGE_DOS_HEADER dos;
+    PIMAGE_NT_HEADERS nt;
+    PIMAGE_SECTION_HEADER sec;
+    uint8_t *pattern = NULL;
+    char *mask = NULL;
+    size_t pattern_len = 0;
+    void *result = NULL;
+    WORD i;
+
+    if (!module || !pattern_text) {
+        return NULL;
+    }
+
+    if (!compile_pattern_string(pattern_text, &pattern, &mask, &pattern_len)) {
+        return NULL;
+    }
+
+    dos = (PIMAGE_DOS_HEADER) module;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) {
+        goto cleanup;
+    }
+
+    nt = (PIMAGE_NT_HEADERS) ((uint8_t *) module + dos->e_lfanew);
+    if (nt->Signature != IMAGE_NT_SIGNATURE) {
+        goto cleanup;
+    }
+
+    sec = IMAGE_FIRST_SECTION(nt);
+    for (i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++sec) {
+        const uint8_t *section_base;
+        size_t section_size;
+        void *hit;
+
+        if (!(sec->Characteristics & IMAGE_SCN_CNT_CODE)) {
+            continue;
+        }
+
+        if (sec->Misc.VirtualSize == 0 || sec->VirtualAddress == 0) {
+            continue;
+        }
+
+        section_base = (const uint8_t *) module + sec->VirtualAddress;
+        section_size = (size_t) sec->Misc.VirtualSize;
+        hit = find_pattern_in_range(section_base, section_size, pattern, mask, pattern_len);
+        if (hit) {
+            result = hit;
+            break;
+        }
+    }
+
+cleanup:
+    free(pattern);
+    free(mask);
+    return result;
+}
+
+static void *resolve_vpline_by_signature(void) {
+    static const char vpline_pattern_msvc[] =
+        "48 89 54 24 10 48 89 4C 24 08 B8 78 05 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 60 05 00 00 48 83 BC 24 80 05 00 00 00 74 ?? 48 8B 84 24 80 05 00 00 0F BE 00 85 C0 75 ?? E9";
+    static const char vpline_pattern_mingw[] =
+        "55 48 81 EC 30 05 00 00 48 8D AC 24 80 00 00 00 48 89 8D ?? ?? ?? ?? 48 89 95 ?? ?? ?? ?? 48 83 BD ?? ?? ?? ?? 00 0F 84";
+    HMODULE exe = GetModuleHandleW(NULL);
+    void *addr;
+
+    if (!exe) {
+        log_hook_message("[hook] vpline fallback failed: no module handle");
+        return NULL;
+    }
+
+    log_hook_message("[hook] vpline symbol unresolved, trying signature fallback (msvc3.6-3.7)");
+    addr = find_pattern_in_module_code(exe, vpline_pattern_msvc);
+    if (addr) {
+        log_hook_message("[hook] vpline signature match (msvc3.6-3.7) at %p", addr);
+        return addr;
+    }
+
+    log_hook_message("[hook] msvc signature not found, trying mingw3.7 signature fallback");
+    addr = find_pattern_in_module_code(exe, vpline_pattern_mingw);
+    if (addr) {
+        log_hook_message("[hook] vpline signature match (mingw3.7) at %p", addr);
+    } else {
+        log_hook_message("[hook] vpline signature fallback failed (both msvc and mingw)");
+    }
+
+    return addr;
+}
+
+static void __cdecl hook_vpline(const char *line, va_list the_args) {
+    char *replaced = NULL;
+    const char *translated = line;
+    char *local_encoded = NULL;
+    const char *final_text = line;
+
+    if (!g_orig_vpline) {
+        return;
+    }
+
+    if (!line) {
+        g_orig_vpline(line, the_args);
+        return;
+    }
+
+    dump_intercepted_text("vpline.before", line, -1);
+    dump_vpline_arguments(line, the_args);
+
+    replaced = translate_text_contains_alloc(line, -1);
+    translated = replaced ? replaced : translate_text(line, -1);
+    final_text = translated;
+
+    if (translated != line) {
+        local_encoded = utf8_to_local_alloc(translated);
+        if (local_encoded) {
+            final_text = local_encoded;
+        }
+        dump_intercepted_text("vpline.after", final_text, -1);
+    }
+
+    g_orig_vpline(final_text, the_args);
+
+    free(local_encoded);
+    free(replaced);
+}
+
+static void __cdecl hook_putstr(int winid, int attr, const char *text) {
+    char *replaced = NULL;
+    const char *translated = text;
+    char *local_encoded = NULL;
+    const char *final_text = text;
+
+    if (!g_orig_putstr) {
+        return;
+    }
+
+    if (!text) {
+        g_orig_putstr(winid, attr, text);
+        return;
+    }
+
+    dump_intercepted_text("putstr.before", text, -1);
+
+    replaced = translate_text_contains_alloc(text, -1);
+    translated = replaced ? replaced : translate_text(text, -1);
+    final_text = translated;
+
+    if (translated != text) {
+        local_encoded = utf8_to_local_alloc(translated);
+        if (local_encoded) {
+            final_text = local_encoded;
+        }
+        dump_intercepted_text("putstr.after", final_text, -1);
+    }
+
+    g_orig_putstr(winid, attr, final_text);
+
+    free(local_encoded);
+    free(replaced);
+}
+
+static void install_symbol_hook(const char *exact_name,
+                                const char *contains_name,
+                                const char *search_pattern,
+                                LPVOID detour,
+                                LPVOID *original) {
+    MH_STATUS mh_status;
+    void *target = resolve_symbol_address(exact_name, contains_name, search_pattern);
+
+    if (!target && exact_name && strcmp(exact_name, "vpline") == 0) {
+        target = resolve_vpline_by_signature();
+    }
+
+    if (!target) {
+        log_hook_message("[hook] unable to resolve symbol '%s'", exact_name ? exact_name : "(null)");
+        return;
+    }
+
+    log_hook_message("[hook] installing hook for '%s' at %p", exact_name ? exact_name : "(null)", target);
+
+    mh_status = MH_Initialize();
+    if (mh_status != MH_OK && mh_status != MH_ERROR_ALREADY_INITIALIZED) {
+        log_hook_message("[hook] MH_Initialize failed: %d", (int) mh_status);
+        return;
+    }
+
+    mh_status = MH_CreateHook(target, detour, original);
+    if (mh_status != MH_OK && mh_status != MH_ERROR_ALREADY_CREATED) {
+        log_hook_message("[hook] MH_CreateHook failed: %d", (int) mh_status);
+        return;
+    }
+
+    mh_status = MH_EnableHook(target);
+    if (mh_status != MH_OK && mh_status != MH_ERROR_ENABLED) {
+        log_hook_message("[hook] MH_EnableHook failed: %d", (int) mh_status);
+        return;
+    }
+
+    log_hook_message("[hook] symbol hook enabled for '%s'", exact_name ? exact_name : "(null)");
 }
 
 WINMM_EXPORT BOOL WINAPI PlaySoundA(LPCSTR pszSound, HMODULE hmod, DWORD fdwSound) {
@@ -944,7 +1676,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
         load_runtime_map_from_resource(hModule);
         init_dump_file();
         install_text_hooks();
+        install_symbol_hook("vpline", "vpline", "*vpline*", (LPVOID) hook_vpline, (LPVOID *) &g_orig_vpline);
+        // install_symbol_hook("putstr", "putstr", "*putstr*", (LPVOID) hook_putstr, (LPVOID *) &g_orig_putstr);
     } else if (reason == DLL_PROCESS_DETACH) {
+        MH_DisableHook(MH_ALL_HOOKS);
+        MH_Uninitialize();
+        if (g_sym_initialized) {
+            SymCleanup(GetCurrentProcess());
+            g_sym_initialized = false;
+        }
         free_runtime_map();
         if (g_dump_file != INVALID_HANDLE_VALUE) {
             CloseHandle(g_dump_file);

@@ -7,6 +7,11 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_library(winmm SHARED
     src/winmm_proxy_main.c
     src/cJSON.c
+    minhook/src/buffer.c
+    minhook/src/hook.c
+    minhook/src/trampoline.c
+    minhook/src/hde/hde32.c
+    minhook/src/hde/hde64.c
     resources/winmm_zh_proxy.rc
     include/resource.h
     locales/zh-CN.json
@@ -14,11 +19,15 @@ add_library(winmm SHARED
 
 target_include_directories(winmm PRIVATE
     include
+    minhook/include
+    minhook/src
+    minhook/src/hde
 )
 
 target_link_libraries(winmm PRIVATE
     user32
     gdi32
+    dbghelp
 )
 
 target_compile_definitions(winmm PRIVATE
@@ -30,6 +39,12 @@ set_target_properties(winmm PROPERTIES
     PREFIX ""
     OUTPUT_NAME "winmm"
 )
+
+set(RES_FILES "locales/zh-CN.json")
+
+foreach(FILE ${RES_FILES})
+    configure_file(${FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILE} COPYONLY)
+endforeach()
 
 # Keep DEF-based exports for MSVC if desired; MinGW uses dllexport symbols.
 if(MSVC)
