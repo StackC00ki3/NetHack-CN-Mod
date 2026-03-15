@@ -205,6 +205,13 @@ static bool is_meta_key(const char *key) {
     return key && key[0] == '_' && key[1] == '_';
 }
 
+/* Sort comparator: longer en-key first (descending by strlen) */
+static int cmp_runtime_item_len_desc(const void *a, const void *b) {
+    size_t la = strlen(((const zh_runtime_item *) a)->en);
+    size_t lb = strlen(((const zh_runtime_item *) b)->en);
+    return (la < lb) - (la > lb);
+}
+
 static bool add_fmt_item(const char *en, cJSON *obj) {
     cJSON *fmt_node, *arg_node, *arg_item;
     zh_fmt_item *items;
@@ -432,6 +439,10 @@ static bool parse_runtime_map_json(char *json_text) {
         free_runtime_map();
         return false;
     }
+
+    /* Sort by key length descending so longer needles match first */
+    qsort(g_runtime_map, g_runtime_map_count,
+          sizeof(zh_runtime_item), cmp_runtime_item_len_desc);
 
     return true;
 }
