@@ -547,6 +547,20 @@ static bool is_alpha_byte(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
 }
 
+static bool has_printf_format_spec(const char *s) {
+    while (*s) {
+        if (*s == '%') {
+            s++;
+            if (*s && *s != '%')
+                return true;
+            if (*s) s++;
+        } else {
+            s++;
+        }
+    }
+    return false;
+}
+
 /*
  * Check word boundary: prevent matching a partial word.
  *  - If needle starts with a letter, the char before must not be a letter.
@@ -1853,8 +1867,12 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
 
     translated = translate_text(line, -1);
     if (translated == line) {
-        replaced = translate_text_contains_alloc(line, -1);
-        translated = replaced ? replaced : line;
+        /* Skip substring replacement for format strings – it would corrupt
+           format specifiers and produce garbled mixed-language output. */
+        if (!has_printf_format_spec(line)) {
+            replaced = translate_text_contains_alloc(line, -1);
+            translated = replaced ? replaced : line;
+        }
     }
     final_text = translated;
 

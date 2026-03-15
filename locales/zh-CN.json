@@ -296,50 +296,121 @@
         "more": "个多的"
       }
     },
-    "new %s magically %s!": "新的%s魔法般地%s了!",
-    "ignite": "点燃",
-    "%s out.": "%s熄灭了.",
-    "They go": "它们",
-    "It goes": "它",
-    "You %s %s, you bought %s!": "你%s %s, 你就要买%s!",
-    "burn": "烧了",
-    "use": "用了",
-    "them": "它们",
-    "it": "它",
-    "%s now has seven%s candles attached.": "%s现在有7 个%s蜡烛附加在上面.",
-    "lit": "点着的",
-    "%s%scandle%s flame%s extinguished.": "%s%s蜡烛%s火焰%s熄灭了.",
-    "candelabrum's": "烛台的",
-    "s'": "的",
-    "'s": "的",
-    "%s %s out!": "%s %s了!",
-    "go": "熄灭",
-    "%s %s light!": "%s %s光!",
-    "catch": "发出",
-    "That's in addition to the cost of %s %s, of course.": "那是%s %s另外的费用, 当然.",
-    "itself": "它自己",
-    "themselves": "它们自己",
-    "%slamp is now off.": "%s灯现在熄灭了.",
-    "snuff out %s.": "掐灭了%s.",
+    "new %s magically %s!": {
+      "fmt": "新的%s魔法般地%s了!",
+      "arg": {
+        "ignite": "点燃"
+      }
+    },
+    "%s out.": {
+      "fmt": "%s熄灭了.",
+      "arg": {
+        "They go": "它们",
+        "It goes": "它"
+      }
+    },
+    "You %s %s, you bought %s!": {
+      "fmt": "你%s %s, 你就要买%s!",
+      "arg": {
+        "burn": "烧了",
+        "use": "用了",
+        "them": "它们",
+        "it": "它"
+      }
+    },
+    "%s now has seven%s candles attached.": {
+      "fmt": "%s现在有7 个%s蜡烛附加在上面.",
+      "arg": {
+        "lit": "点着的"
+      }
+    },
+    "%s%scandle%s flame%s extinguished.": {
+      "fmt": "%s%s蜡烛%s火焰%s熄灭了.",
+      "arg": {
+        "candelabrum's": "烛台的",
+        "s'": "的",
+        "'s": "的",
+        "is": "是"
+      }
+    },
+    "%s %s out!": {
+      "fmt": "%s %s了!",
+      "arg": {
+        "go": "熄灭"
+      }
+    },
+    "%s %s light!": {
+      "fmt": "%s %s光!",
+      "arg": {
+        "catch": "发出"
+      }
+    },
+    "That's in addition to the cost of %s %s, of course.": {
+      "fmt": "那是%s %s另外的费用, 当然.",
+      "arg": {
+        "itself": "它自己",
+        "themselves": "它们自己"
+      }
+    },
+    "%slamp is now off.": {
+      "fmt": "%s灯现在熄灭了.",
+      "arg": {}
+    },
+    "snuff out %s.": {
+      "fmt": "掐灭了%s.",
+      "arg": {}
+    },
     "This is not a diving lamp": "这不是一个潜水灯",
     "Sorry, fire and water don't mix.": "抱歉, 火和水不相容.",
     "lamp has run out of power.": "灯用完了能源.",
-    "This %s has no oil.": "这个%s 没有油了.",
-    "%s for a moment, then %s.": "%s了片刻, 然后%s了.",
-    "%slamp is now on.": "%s灯现在点着.",
-    "%s flame%s %s%s": "%s 火焰%s%s",
-    "You burn %s, you bought %s!": "你烧了%s, 你就要买%s!",
+    "This %s has no oil.": {
+      "fmt": "这个%s 没有油了.",
+      "arg": {}
+    },
+    "%s for a moment, then %s.": {
+      "fmt": "%s了片刻, 然后%s了.",
+      "arg": {
+        "flicker": "闪烁",
+        "die": "熄灭"
+      }
+    },
+    "%slamp is now on.": {
+      "fmt": "%s灯现在点着.",
+      "arg": {}
+    },
+    "%s flame%s %s%s": {
+      "fmt": "%s 火焰%s%s",
+      "arg": {
+        "burn": "烧了",
+        "brightly!": "明亮的!"
+      }
+    },
+    "You burn %s, you bought %s!": {
+      "fmt": "你烧了%s, 你就要买%s!",
+      "arg": {}
+    },
     "snuff the lit potion.": "熄灭了点着的药水.",
     "is not enough oxygen to sustain a fire.": "没有足够的氧气来维持火焰.",
-    "light %spotion.%s": "点燃%s药水.%s",
-    "It gives off a dim light.": "它发出微弱的光.",
+    "light %spotion.%s": {
+      "fmt": "点燃%s药水.%s",
+      "arg": {
+        "It gives off a dim light.": "它发出微弱的光."
+      }
+    },
     "That's in addition to the cost of the potion, of course.": "那是药水另外的费用, 当然.",
-    "You drop %s!": "你扔掉%s!",
+    "You drop %s!": {
+      "fmt": "你扔掉%s!",
+      "arg": {}
+    },
     "rub": "擦拭",
     "Sorry, I don't know how to use that.": "对不起, 我不知道如何使用那个.",
-    "%s smoke.": "%s 烟雾.",
-    "see a puff of": "看见一阵",
-    "smell": "闻到了",
+    "%s smoke.": {
+      "fmt": "%s 烟雾.",
+      "arg": {
+        "see a puff of": "看见一阵",
+        "smell": "闻到了"
+      }
+    },
     "Rubbing the electric lamp is not particularly rewarding.": "擦拭电灯不是特别有意义.",
     "Anyway, nothing exciting happens.": "总之, 没有什么令人兴奋的事情发生.",
     "Illegal move!": "非法移动!",
@@ -354,99 +425,234 @@
     "You've got to be kidding!": "你在开玩笑吧!",
     "swish around a little.": "嗖嗖地挥动起一点.",
     "This calls for swimming, not jumping!": "这叫做游泳, 不叫跳!",
-    "pull free from %s.": "从%s 挣脱出来.",
-    "writhe a little in the grasp of %s!": "在%s 的控制中扭动!",
-    "cannot escape from %s!": "不能逃离%s!",
+    "pull free from %s.": {
+      "fmt": "从%s 挣脱出来.",
+      "arg": {}
+    },
+    "writhe a little in the grasp of %s!": {
+      "fmt": "在%s 的控制中扭动!",
+      "arg": {}
+    },
+    "cannot escape from %s!": {
+      "fmt": "不能逃离%s!",
+      "arg": {}
+    },
     "flail around a little.": "在周围摆动了一点.",
     "don't have enough traction to jump.": "没有足够的牵引力来跳跃.",
     "are carrying too much to jump!": "携带太多东西了不能跳!",
     "lack the strength to jump!": "缺乏力量来跳跃!",
-    "%s is in no shape for jumping.": "%s 完全不能跳.",
-    "%s%s %s in no shape for jumping.": "%s%s %s完全不能跳.",
-    "left": "左",
-    "right": "右",
-    "%s is stuck in a trap.": "%s 陷在陷阱里.",
+    "%s is in no shape for jumping.": {
+      "fmt": "%s 完全不能跳.",
+      "arg": {}
+    },
+    "%s%s %s in no shape for jumping.": {
+      "fmt": "%s%s %s完全不能跳.",
+      "arg": {
+        "left": "左",
+        "right": "右",
+        "are": "是",
+        "is": "是"
+      }
+    },
+    "%s is stuck in a trap.": {
+      "fmt": "%s 陷在陷阱里.",
+      "arg": {}
+    },
     "Where do you want to jump?": "你想跳到哪儿?",
     "the desired position": "期望位置",
     "rip yourself free of the bear trap!  Ouch!": "把自己扯出了捕兽夹!  哎哟!",
     "jumping out of a bear trap": "跳出捕兽夹",
     "leap from the pit!": "跳出了坑!",
     "tear the web apart as you pull yourself free!": "扯碎了网挣脱出来!",
-    "pull yourself above the %s!": "把你自己从%s里往上拉!",
-    "lava": "熔岩",
-    "strain your %s, but you're still %s.": "拉伤了你的%s, 但你仍然%s.",
-    "stuck in the floor": "卡在地板上",
-    "attached to the buried ball": "被埋着的球拴着",
+    "pull yourself above the %s!": {
+      "fmt": "把你自己从%s里往上拉!",
+      "arg": {
+        "lava": "熔岩"
+      }
+    },
+    "strain your %s, but you're still %s.": {
+      "fmt": "拉伤了你的%s, 但你仍然%s.",
+      "arg": {
+        "stuck in the floor": "卡在地板上",
+        "attached to the buried ball": "被埋着的球拴着"
+      }
+    },
     "jumping around": "四处跳跃",
     "seem to be out of tins.": "似乎没有罐头了.",
     "tin": "装罐",
-    "cannot tin %s which is partly eaten.": "不能装罐%s被部分食用了.",
-    "tin %s without wearing gloves.": "装罐%s没有戴手套.",
-    "Tinning %s without wearing gloves is a fatal mistake...": "装罐%s不戴手套是个致命的错误...",
-    "trying to tin %s without gloves": "试图不戴手套装罐%s",
+    "cannot tin %s which is partly eaten.": {
+      "fmt": "不能装罐%s被部分食用了.",
+      "arg": {}
+    },
+    "tin %s without wearing gloves.": {
+      "fmt": "装罐%s没有戴手套.",
+      "arg": {}
+    },
+    "Tinning %s without wearing gloves is a fatal mistake...": {
+      "fmt": "装罐%s不戴手套是个致命的错误...",
+      "arg": {}
+    },
+    "trying to tin %s without gloves": {
+      "fmt": "试图不戴手套装罐%s",
+      "arg": {}
+    },
     "Yes...  But War does not preserve its enemies...": "是的...  但战争不会保存它的敌人...",
     "corpse evades your grasp.": "尸体逃脱了你的控制.",
     "That's too insubstantial to tin.": "那个装罐太不实在了.",
     "You tin it, you bought it!": "你装罐了它, 你就要买它!",
-    "You make, but cannot pick up, %s.": "你能制作, 但不能拿着, %s.",
-    "suddenly feel %s.": "突然感觉%s.",
-    "trippy": "迷幻的",
-    "confused": "混乱的",
+    "You make, but cannot pick up, %s.": {
+      "fmt": "你能制作, 但不能拿着, %s.",
+      "arg": {}
+    },
+    "suddenly feel %s.": {
+      "fmt": "突然感觉%s.",
+      "arg": {
+        "trippy": "迷幻的",
+        "confused": "混乱的"
+      }
+    },
     "Nothing seems to happen.": "似乎没有事情发生.",
-    "This makes you feel %s!": "这让你感觉%s!",
-    "great": "极好的",
-    "better": "更好了",
-    "and %s under %s": "并%s在%s下",
+    "This makes you feel %s!": {
+      "fmt": "这让你感觉%s!",
+      "arg": {
+        "great": "极好的",
+        "better": "更好了"
+      }
+    },
+    "and %s under %s": {
+      "fmt": "并%s在%s下",
+      "arg": {}
+    },
     "crawl": "爬行",
     "and vanish": "并消失了",
-    "%s %s from your pack!": "%s从你的背包%s出!",
-    "drop": "掉",
-    "%s %s out of your pack%s!": "%s从你的背包%s出来%s!",
-    "%s suddenly vanishes!": "%s突然消失了!",
-    "a figurine transform into %s%s!": "一个小雕像变成%s%s!",
-    "%s pack": "%s背包",
+    "%s %s from your pack!": {
+      "fmt": "%s从你的背包%s出!",
+      "arg": {
+        "drop": "掉"
+      }
+    },
+    "%s %s out of your pack%s!": {
+      "fmt": "%s从你的背包%s出来%s!",
+      "arg": {
+        "drop": "掉"
+      }
+    },
+    "%s suddenly vanishes!": {
+      "fmt": "%s突然消失了!",
+      "arg": {}
+    },
+    "a figurine transform into %s%s!": {
+      "fmt": "一个小雕像变成%s%s!",
+      "arg": {}
+    },
+    "%s pack": {
+      "fmt": "%s背包",
+      "arg": {}
+    },
     "empty water": "空水",
     "thin air": "稀薄的空气",
-    "%s %s out of %s%s!": "%s从%s%s出来%s!",
+    "%s %s out of %s%s!": {
+      "fmt": "%s从%s%s出来%s!",
+      "arg": {
+        "drop": "掉"
+      }
+    },
     "don't have enough room in here.": "在这里没有足够空间.",
     "cannot put the figurine there.": "不能把小雕像放在那儿.",
-    "cannot place a figurine in %s!": "不能把小雕像放在%s那儿!",
-    "a tree": "树",
-    "solid rock": "坚石",
+    "cannot place a figurine in %s!": {
+      "fmt": "不能把小雕像放在%s那儿!",
+      "arg": {
+        "a tree": "树",
+        "solid rock": "坚石"
+      }
+    },
     "cannot fit the figurine on the boulder.": "不能把小雕像适放在巨石上.",
-    "%s and it %stransforms.": "%s然后它%s转变了.",
-    "set the figurine beside you": "把小雕像安置在你旁边",
-    "release the figurine": "释放出小雕像",
-    "toss the figurine into the air": "把小雕像抛到空中",
-    "set the figurine on the ground": "把小雕像安置在地上",
-    "supposedly": "应该",
-    "%s from your %s.": "%s从你的%s滑了出去.",
+    "%s and it %stransforms.": {
+      "fmt": "%s然后它%s转变了.",
+      "arg": {
+        "set the figurine beside you": "把小雕像安置在你旁边",
+        "release the figurine": "释放出小雕像",
+        "toss the figurine into the air": "把小雕像抛到空中",
+        "set the figurine on the ground": "把小雕像安置在地上",
+        "supposedly": "应该"
+      }
+    },
+    "%s from your %s.": {
+      "fmt": "%s从你的%s滑了出去.",
+      "arg": {}
+    },
     "grease": "涂脂于",
-    "cover %s with a thick layer of grease.": "用一层厚油脂覆盖了%s.",
-    "Some of the grease gets all over your %s.": "一些油脂弄到了你的%s上.",
-    "coat your %s with grease.": "用油脂包裹了你的%s.",
-    "%s empty.": "%s空的.",
-    "%s to be empty.": "%s是空的.",
-    "seem": "看起来",
+    "cover %s with a thick layer of grease.": {
+      "fmt": "用一层厚油脂覆盖了%s.",
+      "arg": {}
+    },
+    "Some of the grease gets all over your %s.": {
+      "fmt": "一些油脂弄到了你的%s上.",
+      "arg": {}
+    },
+    "coat your %s with grease.": {
+      "fmt": "用油脂包裹了你的%s.",
+      "arg": {}
+    },
+    "%s empty.": {
+      "fmt": "%s空的.",
+      "arg": {
+        "are": "是"
+      }
+    },
+    "%s to be empty.": {
+      "fmt": "%s是空的.",
+      "arg": {
+        "seem": "看起来"
+      }
+    },
     "\"scritch, scritch\"": "\"咯喳, 咯喳\"",
-    "rub on the stone%s": "在石头上擦拭",
-    "rub %s on itself.": "擦拭%s自身.",
+    "rub on the stone%s": {
+      "fmt": "在石头上擦拭",
+      "arg": {}
+    },
+    "rub %s on itself.": {
+      "fmt": "擦拭%s自身.",
+      "arg": {}
+    },
     "You feel something shatter.": "你感觉什么东西破碎了.",
     "Oh, wow, look at the pretty shards.": "哇, 看看这些漂亮的碎片.",
-    "A sharp crack shatters %s%s.": "%s%s发出尖锐的破碎声.",
-    "one of": "之一",
+    "A sharp crack shatters %s%s.": {
+      "fmt": "%s%s发出尖锐的破碎声.",
+      "arg": {
+        "one of": "之一"
+      }
+    },
     "Oh wow, man: Fractals!": "哇, 分形!",
-    "%s a little more polished now.": "%s更加光滑了.",
-    "look": "看起来",
+    "%s a little more polished now.": {
+      "fmt": "%s更加光滑了.",
+      "arg": {
+        "look": "看起来"
+      }
+    },
     "must think this is a wetstone, do you?": "一定认为这是一块磨石, 是吗?",
-    "%s a little wetter now.": "%s有些潮湿的.",
+    "%s a little wetter now.": {
+      "fmt": "%s有些潮湿的.",
+      "arg": {
+        "are": "是"
+      }
+    },
     "waxy": "蜡色的",
     "wooden": "木制的",
     "golden": "金的",
     "silvery": "银的",
-    "stone%s": "石头",
-    "make %s%sscratch marks on the %s.": "磨出%s%s划痕到%s上.",
-    "%s streaks on the %s.": "%s条痕留在%s上.",
+    "stone%s": {
+      "fmt": "石头",
+      "arg": {}
+    },
+    "make %s%sscratch marks on the %s.": {
+      "fmt": "磨出%s%s划痕到%s上.",
+      "arg": {}
+    },
+    "%s streaks on the %s.": {
+      "fmt": "%s条痕留在%s上.",
+      "arg": {}
+    },
     "setting the trap": "设置陷阱",
     "without hands": "不用手",
     "while stunned": "在眩晕时",
@@ -462,37 +668,103 @@
     "in midair": "在半空中",
     "in a cloud": "在云中",
     "in this place": "在这个地方",
-    "set a trap %s!": "%s设置陷阱!",
-    "resume setting %s%s.": "重新设置%s%s.",
-    "aren't very skilled at reaching from %s.": "的熟练度不足以让你从%s够到.",
-    "Continue your attempt to set %s?": "继续尝试设置%s?",
-    "drop %s!": "扔下%s!",
-    "begin setting %s%s.": "开始设置%s%s.",
-    "finish arming %s.": "完成安装%s.",
+    "set a trap %s!": {
+      "fmt": "%s设置陷阱!",
+      "arg": {}
+    },
+    "resume setting %s%s.": {
+      "fmt": "重新设置%s%s.",
+      "arg": {}
+    },
+    "aren't very skilled at reaching from %s.": {
+      "fmt": "的熟练度不足以让你从%s够到.",
+      "arg": {}
+    },
+    "Continue your attempt to set %s?": {
+      "fmt": "继续尝试设置%s?",
+      "arg": {}
+    },
+    "drop %s!": {
+      "fmt": "扔下%s!",
+      "arg": {}
+    },
+    "begin setting %s%s.": {
+      "fmt": "开始设置%s%s.",
+      "arg": {}
+    },
+    "finish arming %s.": {
+      "fmt": "完成安装%s.",
+      "arg": {}
+    },
     "The bullwhip slips free.": "牛鞭滑动开.",
     "Snap!": "噼啪!",
     "lash": "鞭打",
     "miss.": "没打中.",
     "is not enough room to flick your bullwhip.": "没有足够的空间来轻打你的牛鞭.",
     "is too much resistance to flick your bullwhip.": "有太多的阻力来轻打你的牛鞭.",
-    "flick a bug off of the %s.": "轻打下一个%s的臭虫.",
-    "whip %s!": "抽打%s!",
+    "flick a bug off of the %s.": {
+      "fmt": "轻打下一个%s的臭虫.",
+      "arg": {}
+    },
+    "whip %s!": {
+      "fmt": "抽打%s!",
+      "arg": {}
+    },
     "Why beat a dead horse?": "为什么打一匹死马?",
-    "wrap your bullwhip around %s on the %s.": "把你的牛鞭缠绕在%s周围到%s上.",
-    "hit your %s with your bullwhip.": "用你的牛鞭打中你的%s.",
-    "killed %sself with %s bullwhip": "被%s牛鞭杀死",
-    "bullwhip slips out of your %s.": "牛鞭滑出你的%s.",
+    "wrap your bullwhip around %s on the %s.": {
+      "fmt": "把你的牛鞭缠绕在%s周围到%s上.",
+      "arg": {}
+    },
+    "hit your %s with your bullwhip.": {
+      "fmt": "用你的牛鞭打中你的%s.",
+      "arg": {}
+    },
+    "killed %sself with %s bullwhip": {
+      "fmt": "被%s牛鞭杀死",
+      "arg": {}
+    },
+    "bullwhip slips out of your %s.": {
+      "fmt": "牛鞭滑出你的%s.",
+      "arg": {}
+    },
     "a boulder": "巨石",
-    "wrap your bullwhip around %s.": "把你的牛鞭缠绕在%s周围.",
+    "wrap your bullwhip around %s.": {
+      "fmt": "把你的牛鞭缠绕在%s周围.",
+      "arg": {}
+    },
     "yank yourself out of the pit!": "把你自己猛拉出了坑!",
     "A monster is there that you couldn't see.": "有一只怪物在那儿你看不见.",
-    "%s welded to %s %s%c": "%s粘到了%s%s上%c",
-    "yank %s to the %s!": "把%s 猛拉到%s!",
-    "snatch %s!": "夺得%s!",
-    "%s corpse": "%s尸体",
-    "Snatching %s is a fatal mistake.": "抢夺%s是一个致命的错误.",
-    "yank %s from %s %s!": "把%s猛拉出%s%s!",
-    "flick your bullwhip towards %s.": "用你的牛鞭向%s 轻打.",
+    "%s welded to %s %s%c": {
+      "fmt": "%s粘到了%s%s上%c",
+      "arg": {
+        "It is": "它是",
+        "They are": "它们是"
+      }
+    },
+    "yank %s to the %s!": {
+      "fmt": "把%s 猛拉到%s!",
+      "arg": {}
+    },
+    "snatch %s!": {
+      "fmt": "夺得%s!",
+      "arg": {}
+    },
+    "%s corpse": {
+      "fmt": "%s尸体",
+      "arg": {}
+    },
+    "Snatching %s is a fatal mistake.": {
+      "fmt": "抢夺%s是一个致命的错误.",
+      "arg": {}
+    },
+    "yank %s from %s %s!": {
+      "fmt": "把%s猛拉出%s%s!",
+      "arg": {}
+    },
+    "flick your bullwhip towards %s.": {
+      "fmt": "用你的牛鞭向%s 轻打.",
+      "arg": {}
+    },
     "snap your whip through thin air.": "在稀薄的空气中弹了一下牛鞭.",
     "There's not enough room here to use that.": "这里没有足够的空间来使用那个.",
     "Where do you want to hit?": "你想打哪里?",
@@ -504,39 +776,95 @@
     "Thump!  Your blow bounces harmlessly off the statue.": "重击!  你对雕像的打击反弹无伤害.",
     "miss; there is no one there to hit.": "没打中; 那里没有什么东西来打.",
     "give yourself a facial.": "给自己做面膜.",
-    "You immerse your %s in %s%s.": "你把你的%s浸入到%s%s.",
-    "There's %ssticky goop all over your %s.": "这里有%s粘性东西在你的满%s上.",
-    "see through all the sticky goop on your %s.": "透过你的%s上的粘性东西来看.",
+    "You immerse your %s in %s%s.": {
+      "fmt": "你把你的%s浸入到%s%s.",
+      "arg": {
+        "one of": "之一"
+      }
+    },
+    "There's %ssticky goop all over your %s.": {
+      "fmt": "这里有%s粘性东西在你的满%s上.",
+      "arg": {
+        "more": "个多的"
+      }
+    },
+    "see through all the sticky goop on your %s.": {
+      "fmt": "透过你的%s上的粘性东西来看.",
+      "arg": {}
+    },
     "cast": "抛",
-    "an object on the %s": "%s上的一个物品",
+    "an object on the %s": {
+      "fmt": "%s上的一个物品",
+      "arg": {}
+    },
     "a monster": "一只怪",
-    "the %s": "%s",
+    "the %s": {
+      "fmt": "%s",
+      "arg": {}
+    },
     "Aim for what?": "哪个目标?",
-    "snag an object from the %s!": "从%s抓住一个物品!",
-    "pull in %s!": "勒住%s!",
-    "hook slices through the %s.": "钩片穿过了%s.",
-    "are yanked toward the %s!": "被猛拉向%s!",
+    "snag an object from the %s!": {
+      "fmt": "从%s抓住一个物品!",
+      "arg": {}
+    },
+    "pull in %s!": {
+      "fmt": "勒住%s!",
+      "arg": {}
+    },
+    "hook slices through the %s.": {
+      "fmt": "钩片穿过了%s.",
+      "arg": {}
+    },
+    "are yanked toward the %s!": {
+      "fmt": "被猛拉向%s!",
+      "arg": {}
+    },
     "hook yourself!": "钩住了你自己!",
     "a grappling hook": "爪钩",
     "But nothing else happens...": "但是没有别的事发生...",
     "balsa": "巴沙木",
     "Are you really sure you want to break": "你确定要折断",
-    "break %s without hands!": "没有手就折断%s!",
-    "don't have the strength to break %s!": "没有足够的力量来折断%s!",
-    "Raising %s high above your %s, you %s it in two!": "把%s举过你的%s, 你把它%s成了两半!",
-    "snap": "撕",
-    "break": "分",
+    "break %s without hands!": {
+      "fmt": "没有手就折断%s!",
+      "arg": {}
+    },
+    "don't have the strength to break %s!": {
+      "fmt": "没有足够的力量来折断%s!",
+      "arg": {}
+    },
+    "Raising %s high above your %s, you %s it in two!": {
+      "fmt": "把%s举过你的%s, 你把它%s成了两半!",
+      "arg": {
+        "snap": "撕",
+        "break": "分"
+      }
+    },
     "A wall of force smashes down around you!": "力墙被打碎倒在你周围!",
-    "Some holes are quickly filled with %s!": "一些洞迅速被%s填满!",
-    "killed %sself by breaking a wand": "被折断一个魔杖杀死",
+    "Some holes are quickly filled with %s!": {
+      "fmt": "一些洞迅速被%s填满!",
+      "arg": {}
+    },
+    "killed %sself by breaking a wand": {
+      "fmt": "被折断一个魔杖杀死",
+      "arg": {}
+    },
     "dig into": "挖进",
     "use or apply": "使用",
-    "are already %s.": "已经 %s.",
-    "covered by a towel": "盖着毛巾了",
-    "wearing a blindfold": "戴着眼罩了",
-    "wearing lenses": "戴着眼镜了",
-    "%s %s.": "%s%s光芒.",
-    "brown": "褐色"
+    "are already %s.": {
+      "fmt": "已经 %s.",
+      "arg": {
+        "covered by a towel": "盖着毛巾了",
+        "wearing a blindfold": "戴着眼罩了",
+        "wearing lenses": "戴着眼镜了"
+      }
+    },
+    "%s %s.": {
+      "fmt": "%s%s光芒.",
+      "arg": {
+        "glow": "发出",
+        "brown": "褐色"
+      }
+    }
   },
   "a blessed": "受祝福的",
   "an uncursed": "未诅咒的",
