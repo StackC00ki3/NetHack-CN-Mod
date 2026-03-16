@@ -46,9 +46,13 @@ foreach(FILE ${RES_FILES})
     configure_file(${FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILE} COPYONLY)
 endforeach()
 
-# Keep DEF-based exports for MSVC if desired; MinGW uses dllexport symbols.
+# Keep stable export names across toolchains.
 if(MSVC)
     target_link_options(winmm PRIVATE
         /DEF:${CMAKE_CURRENT_SOURCE_DIR}/resources/winmm_zh_proxy.def
+    )
+elseif(MINGW)
+    target_link_options(winmm PRIVATE
+        -Wl,--add-stdcall-alias
     )
 endif()

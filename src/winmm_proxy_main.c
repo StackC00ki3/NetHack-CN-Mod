@@ -1951,35 +1951,58 @@ cleanup:
     return result;
 }
 
+typedef struct {
+    const char *label;
+    const char *pattern;
+} vpline_signature_item;
+
+#if defined(_M_IX86) || defined(__i386__)
+#define VPLINE_SIG_ARCH "i386"
+static const vpline_signature_item vpline_signatures[] = {
+    {
+        "offcial msvc3.4.3",
+        "81 EC 00 01 00 00 56 8B B4 24 08 01 00 00 85 F6 0F 84 ?? ?? ?? ?? 80 3E 00 0F 84 ?? ?? ?? ?? 6A 25 56 E8 ?? ?? ?? ?? 83 C4 08 85 C0 74 1A 8B 84 24 0C 01 00 00 8D 4C 24 04 50 56 51 E8 ?? ?? ?? ?? 83 C4 0C 8D 74 24 04 A0 ?? ?? ?? ?? 84 C0 75 12 56 FF 15 ?? ?? ?? ?? 83 C4 04 5E 81 C4 00 01 00 00 C3"
+    },
+    {
+        "offcial msvc3.6.7",
+        "55 8B EC 81 EC 2C 05 00 00 56 57 8D BD D4 FA FF FF B9 4B 01 00 00 B8 CC CC CC CC F3 AB A1 ?? ?? ?? ?? 33 C5 89 45 FC C7 85 E8 FA FF FF 00 00 00 00 83 7D 08 00 74 0A 8B 45 08 0F BE 08 85 C9 75 05 E9 ?? ?? ?? ?? 83 3D ?? ?? ?? ?? 00 74 05 E9 ?? ?? ?? ?? 83 3D ?? ?? ?? ?? 00 74 05 E9 ?? ?? ?? ?? 6A 25 8B 55 08 52 E8 ?? ?? ?? ?? 83 C4 08 85 C0 74 55 8B 45 0C 50 8B 4D 08 51 68 00 05 00 00 8D 95 F8 FA FF FF 52 E8 ?? ?? ?? ?? 83 C4 10 89 85 E8 FA FF FF 81 BD E8 FA FF FF 00 05 00 00 7C 1E"
+    }
+};
+#else
+#define VPLINE_SIG_ARCH "x64"
+static const vpline_signature_item vpline_signatures[] = {
+    {
+        "msvc3.6-3.7",
+        "48 89 54 24 10 48 89 4C 24 08 B8 78 05 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 60 05 00 00 48 83 BC 24 80 05 00 00 00 74 ?? 48 8B 84 24 80 05 00 00 0F BE 00 85 C0 75 ?? E9"
+    },
+    {
+        "mingw3.7",
+        "55 48 81 EC 30 05 00 00 48 8D AC 24 80 00 00 00 48 89 8D ?? ?? ?? ?? 48 89 95 ?? ?? ?? ?? 48 83 BD ?? ?? ?? ?? 00 0F 84"
+    }
+};
+#endif
+
 static void *resolve_vpline_by_signature(void) {
-    static const char vpline_pattern_msvc[] =
-        "48 89 54 24 10 48 89 4C 24 08 B8 78 05 00 00 E8 ?? ?? ?? ?? 48 2B E0 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 60 05 00 00 48 83 BC 24 80 05 00 00 00 74 ?? 48 8B 84 24 80 05 00 00 0F BE 00 85 C0 75 ?? E9";
-    static const char vpline_pattern_mingw[] =
-        "55 48 81 EC 30 05 00 00 48 8D AC 24 80 00 00 00 48 89 8D ?? ?? ?? ?? 48 89 95 ?? ?? ?? ?? 48 83 BD ?? ?? ?? ?? 00 0F 84";
     HMODULE exe = GetModuleHandleW(NULL);
-    void *addr;
+    size_t i;
 
     if (!exe) {
         log_hook_message("[hook] vpline fallback failed: no module handle");
         return NULL;
     }
 
-    log_hook_message("[hook] vpline symbol unresolved, trying signature fallback (msvc3.6-3.7)");
-    addr = find_pattern_in_module_code(exe, vpline_pattern_msvc);
-    if (addr) {
-        log_hook_message("[hook] vpline signature match (msvc3.6-3.7) at %p", addr);
-        return addr;
+    log_hook_message("[hook] vpline symbol unresolved, trying signature fallback list (%s)", VPLINE_SIG_ARCH);
+
+    for (i = 0; i < sizeof(vpline_signatures) / sizeof(vpline_signatures[0]); ++i) {
+        void *addr = find_pattern_in_module_code(exe, vpline_signatures[i].pattern);
+        if (addr) {
+            log_hook_message("[hook] vpline signature match (%s) at %p", vpline_signatures[i].label, addr);
+            return addr;
+        }
     }
 
-    log_hook_message("[hook] msvc signature not found, trying mingw3.7 signature fallback");
-    addr = find_pattern_in_module_code(exe, vpline_pattern_mingw);
-    if (addr) {
-        log_hook_message("[hook] vpline signature match (mingw3.7) at %p", addr);
-    } else {
-        log_hook_message("[hook] vpline signature fallback failed (both msvc and mingw)");
-    }
-
-    return addr;
+    log_hook_message("[hook] vpline signature fallback failed (no pattern matched)");
+    return NULL;
 }
 
 typedef struct {
@@ -2241,7 +2264,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
         load_runtime_map_from_resource(hModule);
         init_dump_file();
         install_text_hooks();
-        install_symbol_hook("vpline", "vpline", "*vpline*", (LPVOID) hook_vpline, (LPVOID *) &g_orig_vpline);
+#if defined(_M_IX86) || defined(__i386__)
+        install_symbol_hook("_vpline", "vpline", "*vpline*", (LPVOID) hook_vpline,
+                            (LPVOID *) &g_orig_vpline);
+#else
+        install_symbol_hook("vpline", "vpline", "*vpline*", (LPVOID) hook_vpline,
+                            (LPVOID *) &g_orig_vpline);
+#endif
         // install_symbol_hook("putstr", "putstr", "*putstr*", (LPVOID) hook_putstr, (LPVOID *) &g_orig_putstr);
     } else if (reason == DLL_PROCESS_DETACH) {
         MH_DisableHook(MH_ALL_HOOKS);

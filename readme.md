@@ -24,6 +24,15 @@ cmake -S . -B build -A x64
 cmake --build build --config Release
 ```
 
+构建 x86（Win32）版本：
+
+```bat
+cmake -S . -B build-x86 -A Win32
+cmake --build build-x86 --config Release
+```
+
+说明：把对应架构的 `winmm.dll` 放到对应架构的 `NetHackW.exe` 同目录即可。
+
 若你使用 MinGW + Ninja：
 
 ```bat

@@ -11,44 +11,74 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x64
+            output_dir: build-x64/Release
+            asset_name: winmm-x64.dll
+          - arch: x86
+            cmake_arch: Win32
+            output_dir: build-x86/Release
+            asset_name: winmm-x86.dll
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure (CMake)
-        run: cmake -S . -B build -A x64
+        run: cmake -S . -B build-${{ matrix.arch }} -A ${{ matrix.cmake_arch }}
 
       - name: Build (Release)
-        run: cmake --build build --config Release
+        run: cmake --build build-${{ matrix.arch }} --config Release
 
-      - name: Package snapshot
+      - name: Package build (${{ matrix.arch }})
         id: package
         shell: pwsh
         run: |
-          $tag = "snapshot-${{ github.run_id }}"
-          $assetPath = "build/Release/winmm.dll"
+          $assetPath = "${{ matrix.output_dir }}/winmm.dll"
+          $packagedAssetPath = "${{ matrix.output_dir }}/${{ matrix.asset_name }}"
 
           if (-not (Test-Path $assetPath)) {
             throw "Build output not found: $assetPath"
           }
 
-          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "asset_path=$assetPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Copy-Item -Path $assetPath -Destination $packagedAssetPath -Force
+          "asset_path=$packagedAssetPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
-      - name: Upload build artifact
+      - name: Upload build artifact (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.tag }}
+          name: winmm-${{ matrix.arch }}
           path: ${{ steps.package.outputs.asset_path }}
+
+  release:
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: winmm-x64
+          path: dist
+
+      - name: Download x86 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: winmm-x86
+          path: dist
 
       - name: Create snapshot release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.package.outputs.tag }}
-          name: Snapshot ${{ steps.package.outputs.tag }}
+          tag_name: ${{ github.sha }}
+          name: Snapshot ${{ github.sha }}
           prerelease: true
           generate_release_notes: true
-          files: ${{ steps.package.outputs.asset_path }}
+          files: |
+            dist/winmm-x64.dll
+            dist/winmm-x86.dll
