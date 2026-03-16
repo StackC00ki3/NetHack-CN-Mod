@@ -2264,13 +2264,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
         load_runtime_map_from_resource(hModule);
         init_dump_file();
         install_text_hooks();
-#if defined(_M_IX86) || defined(__i386__)
-        install_symbol_hook("_vpline", "vpline", "*vpline*", (LPVOID) hook_vpline,
-                            (LPVOID *) &g_orig_vpline);
-#else
         install_symbol_hook("vpline", "vpline", "*vpline*", (LPVOID) hook_vpline,
                             (LPVOID *) &g_orig_vpline);
-#endif
         // install_symbol_hook("putstr", "putstr", "*putstr*", (LPVOID) hook_putstr, (LPVOID *) &g_orig_putstr);
     } else if (reason == DLL_PROCESS_DETACH) {
         MH_DisableHook(MH_ALL_HOOKS);
