@@ -1,0 +1,54 @@
+name: Snapshot Release
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (CMake)
+        run: cmake -S . -B build -A x64
+
+      - name: Build (Release)
+        run: cmake --build build --config Release
+
+      - name: Package snapshot
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "snapshot-${{ github.run_id }}"
+          $assetPath = "build/Release/winmm.dll"
+
+          if (-not (Test-Path $assetPath)) {
+            throw "Build output not found: $assetPath"
+          }
+
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "asset_path=$assetPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.tag }}
+          path: ${{ steps.package.outputs.asset_path }}
+
+      - name: Create snapshot release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.tag }}
+          name: Snapshot ${{ steps.package.outputs.tag }}
+          prerelease: true
+          generate_release_notes: true
+          files: ${{ steps.package.outputs.asset_path }}
