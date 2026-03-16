@@ -743,6 +743,146 @@ static char *utf8_to_local_alloc(const char *utf8_str) {
     return local_buf;
 }
 
+static char *utf8_to_local_alloc_len(const char *utf8_str, int in_len) {
+    WCHAR *wide_buf;
+    char *local_buf;
+    int wide_len, local_len;
+
+    if (!utf8_str) {
+        return NULL;
+    }
+
+    if (in_len < 0) {
+        return utf8_to_local_alloc(utf8_str);
+    }
+
+    if (in_len == 0) {
+        return dup_string("");
+    }
+
+    wide_len = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                                   utf8_str, in_len, NULL, 0);
+    if (wide_len <= 0) {
+        return NULL;
+    }
+
+    wide_buf = (WCHAR *) malloc((size_t) (wide_len + 1) * sizeof(WCHAR));
+    if (!wide_buf) {
+        return NULL;
+    }
+
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
+                             utf8_str, in_len, wide_buf, wide_len)) {
+        free(wide_buf);
+        return NULL;
+    }
+    wide_buf[wide_len] = L'\0';
+
+    local_len = WideCharToMultiByte(CP_ACP, 0, wide_buf, -1, NULL, 0, NULL, NULL);
+    if (local_len <= 0) {
+        free(wide_buf);
+        return NULL;
+    }
+
+    local_buf = (char *) malloc((size_t) local_len);
+    if (!local_buf) {
+        free(wide_buf);
+        return NULL;
+    }
+
+    if (!WideCharToMultiByte(CP_ACP, 0, wide_buf, -1, local_buf, local_len, NULL, NULL)) {
+        free(wide_buf);
+        free(local_buf);
+        return NULL;
+    }
+
+    free(wide_buf);
+    return local_buf;
+}
+
+static bool is_likely_utf8_text(const char *s, int len) {
+    const unsigned char *p;
+    int i = 0;
+    bool has_multibyte = false;
+
+    if (!s) {
+        return false;
+    }
+
+    if (len < 0) {
+        len = (int) strlen(s);
+    }
+    if (len <= 0) {
+        return false;
+    }
+
+    p = (const unsigned char *) s;
+    while (i < len && p[i] != '\0') {
+        unsigned char c = p[i];
+
+        if (c < 0x80) {
+            ++i;
+            continue;
+        }
+
+        if (c >= 0xC2 && c <= 0xDF) {
+            if (i + 1 >= len || (p[i + 1] & 0xC0) != 0x80) {
+                return false;
+            }
+            has_multibyte = true;
+            i += 2;
+            continue;
+        }
+
+        if (c >= 0xE0 && c <= 0xEF) {
+            unsigned char c1, c2;
+            if (i + 2 >= len) {
+                return false;
+            }
+            c1 = p[i + 1];
+            c2 = p[i + 2];
+            if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80) {
+                return false;
+            }
+            if (c == 0xE0 && c1 < 0xA0) {
+                return false;
+            }
+            if (c == 0xED && c1 >= 0xA0) {
+                return false;
+            }
+            has_multibyte = true;
+            i += 3;
+            continue;
+        }
+
+        if (c >= 0xF0 && c <= 0xF4) {
+            unsigned char c1, c2, c3;
+            if (i + 3 >= len) {
+                return false;
+            }
+            c1 = p[i + 1];
+            c2 = p[i + 2];
+            c3 = p[i + 3];
+            if ((c1 & 0xC0) != 0x80 || (c2 & 0xC0) != 0x80 || (c3 & 0xC0) != 0x80) {
+                return false;
+            }
+            if (c == 0xF0 && c1 < 0x90) {
+                return false;
+            }
+            if (c == 0xF4 && c1 > 0x8F) {
+                return false;
+            }
+            has_multibyte = true;
+            i += 4;
+            continue;
+        }
+
+        return false;
+    }
+
+    return has_multibyte;
+}
+
 static const char *translate_exact(const char *src) {
     size_t i;
     const char *zh_result = NULL;
@@ -1401,6 +1541,7 @@ static BOOL WINAPI hook_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
     dump_intercepted_text("SetWindowTextA", lpString, -1);
     const char *translated = translate_text(lpString, -1);
     char *replaced = NULL;
+    bool need_local_reencode = false;
     if (translated == lpString) {
         replaced = translate_text_contains_alloc(lpString, -1);
         translated = replaced ? replaced : lpString;
@@ -1409,8 +1550,9 @@ static BOOL WINAPI hook_SetWindowTextA(HWND hWnd, LPCSTR lpString) {
     const char *final_text = translated;
     BOOL ret;
 
-    if (translated != lpString) {
-        local_encoded = utf8_to_local_alloc(translated);
+    need_local_reencode = (translated != lpString) || is_likely_utf8_text(translated, -1);
+    if (need_local_reencode) {
+        local_encoded = utf8_to_local_alloc_len(translated, -1);
         if (local_encoded) {
             final_text = local_encoded;
         }
@@ -1433,6 +1575,8 @@ static int WINAPI hook_DrawTextA(HDC hdc, LPCSTR lpchText, int cchText,
     dump_intercepted_text("DrawTextA.before", lpchText, cchText);
     const char *translated = translate_text(lpchText, cchText);
     char *replaced = NULL;
+    bool need_local_reencode = false;
+    int encode_len = cchText;
     if (translated == lpchText) {
         replaced = translate_text_contains_alloc(lpchText, cchText);
         translated = replaced ? replaced : lpchText;
@@ -1442,15 +1586,21 @@ static int WINAPI hook_DrawTextA(HDC hdc, LPCSTR lpchText, int cchText,
     int out_len = cchText;
     int ret;
 
-    if (translated != lpchText) {
-        dump_intercepted_text("DrawTextA.after", translated, -1);
-        local_encoded = utf8_to_local_alloc(translated);
+    need_local_reencode = (translated != lpchText) || is_likely_utf8_text(translated, cchText);
+    if (need_local_reencode) {
+        if (translated != lpchText) {
+            dump_intercepted_text("DrawTextA.after", translated, -1);
+            encode_len = -1;
+        }
+        local_encoded = utf8_to_local_alloc_len(translated, encode_len);
         if (local_encoded) {
             final_text = local_encoded;
             out_len = (int) strlen(local_encoded);
         } else {
-            final_text = translated;
-            out_len = (int) strlen(translated);
+            if (translated != lpchText) {
+                final_text = translated;
+                out_len = (int) strlen(translated);
+            }
         }
     }
 
@@ -1470,6 +1620,8 @@ static BOOL WINAPI hook_TextOutA(HDC hdc, int x, int y, LPCSTR lpString, int c) 
     dump_intercepted_text("TextOutA", lpString, c);
     const char *translated = translate_text(lpString, c);
     char *replaced = NULL;
+    bool need_local_reencode = false;
+    int encode_len = c;
     if (translated == lpString) {
         replaced = translate_text_contains_alloc(lpString, c);
         translated = replaced ? replaced : lpString;
@@ -1479,14 +1631,20 @@ static BOOL WINAPI hook_TextOutA(HDC hdc, int x, int y, LPCSTR lpString, int c) 
     int out_len = c;
     BOOL ret;
 
-    if (translated != lpString) {
-        local_encoded = utf8_to_local_alloc(translated);
+    need_local_reencode = (translated != lpString) || is_likely_utf8_text(translated, c);
+    if (need_local_reencode) {
+        if (translated != lpString) {
+            encode_len = -1;
+        }
+        local_encoded = utf8_to_local_alloc_len(translated, encode_len);
         if (local_encoded) {
             final_text = local_encoded;
             out_len = (int) strlen(local_encoded);
         } else {
-            final_text = translated;
-            out_len = (int) strlen(translated);
+            if (translated != lpString) {
+                final_text = translated;
+                out_len = (int) strlen(translated);
+            }
         }
     }
 
