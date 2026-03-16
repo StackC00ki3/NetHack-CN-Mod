@@ -82,6 +82,28 @@ static size_t g_runtime_map_count = 0;
 static zh_fmt_item *g_fmt_map = NULL;
 static size_t g_fmt_map_count = 0;
 
+static void dump_json_loaded_count(size_t count) {
+    DWORD written;
+    char line[96];
+    int n;
+
+    if (!g_dump_lock_ready || g_dump_file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    n = _snprintf(line, sizeof(line), "[json] loaded entries: %u\r\n", (unsigned int) count);
+    if (n <= 0) {
+        return;
+    }
+    if (n > (int) sizeof(line)) {
+        n = (int) sizeof(line);
+    }
+
+    EnterCriticalSection(&g_dump_lock);
+    WriteFile(g_dump_file, line, (DWORD) n, &written, NULL);
+    LeaveCriticalSection(&g_dump_lock);
+}
+
 static const zh_map_item g_builtin_zh_map[] = {
     {"Messages", "消息"},
     {"Menu/Text", "菜单/文本"},
@@ -271,9 +293,6 @@ static bool add_fmt_item(const char *en, cJSON *obj) {
 static bool parse_runtime_map_json(char *json_text) {
     cJSON *root = NULL;
     cJSON *item = NULL;
-    HANDLE debug_file;
-    DWORD written;
-    int item_count = 0;
 
     if (!json_text) {
         return false;
@@ -281,43 +300,16 @@ static bool parse_runtime_map_json(char *json_text) {
 
     root = cJSON_ParseWithLengthOpts(json_text, strlen(json_text), NULL, 0);
     if (!root) {
-        debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                 FILE_SHARE_READ, NULL,
-                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (debug_file != INVALID_HANDLE_VALUE) {
-            WriteFile(debug_file, "ERROR: cJSON_Parse failed\n", 27, &written, NULL);
-            CloseHandle(debug_file);
-        }
         return false;
     }
 
     if (!cJSON_IsObject(root)) {
-        debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                 FILE_SHARE_READ, NULL,
-                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (debug_file != INVALID_HANDLE_VALUE) {
-            WriteFile(debug_file, "ERROR: root is not object\n", 27, &written, NULL);
-            CloseHandle(debug_file);
-        }
         cJSON_Delete(root);
         return false;
     }
 
     cJSON_ArrayForEach(item, root) {
-        char debug_buf[256];
-        int debug_len;
-
-        ++item_count;
-
         if (!item->string) {
-            debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                     FILE_SHARE_READ, NULL,
-                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (debug_file != INVALID_HANDLE_VALUE) {
-                debug_len = sprintf(debug_buf, "Item %d: no string key\n", item_count);
-                WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-                CloseHandle(debug_file);
-            }
             continue;
         }
         if (is_meta_key(item->string)) {
@@ -327,14 +319,6 @@ static bool parse_runtime_map_json(char *json_text) {
         /* Backward compatibility: flat key-value map */
         if (cJSON_IsString(item) && item->valuestring) {
             if (!add_runtime_item_copy(item->string, item->valuestring)) {
-                debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                         FILE_SHARE_READ, NULL,
-                                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                if (debug_file != INVALID_HANDLE_VALUE) {
-                    debug_len = sprintf(debug_buf, "Item %d: add_runtime_item failed\n", item_count);
-                    WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-                    CloseHandle(debug_file);
-                }
                 cJSON_Delete(root);
                 free_runtime_map();
                 return false;
@@ -353,8 +337,6 @@ static bool parse_runtime_map_json(char *json_text) {
             }
 
             cJSON_ArrayForEach(sub_item, item) {
-                ++item_count;
-
                 if (!sub_item->string || is_meta_key(sub_item->string)) {
                     continue;
                 }
@@ -368,32 +350,12 @@ static bool parse_runtime_map_json(char *json_text) {
                 }
 
                 if (!cJSON_IsString(sub_item) || !sub_item->valuestring) {
-                    debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                             FILE_SHARE_READ, NULL,
-                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (debug_file != INVALID_HANDLE_VALUE) {
-                        debug_len = sprintf(debug_buf,
-                                            "Item %d: [%s.%s] is not string or no value\n",
-                                            item_count, item->string, sub_item->string);
-                        WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-                        CloseHandle(debug_file);
-                    }
                     cJSON_Delete(root);
                     free_runtime_map();
                     return false;
                 }
 
                 if (!add_runtime_item_copy(sub_item->string, sub_item->valuestring)) {
-                    debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                             FILE_SHARE_READ, NULL,
-                                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-                    if (debug_file != INVALID_HANDLE_VALUE) {
-                        debug_len = sprintf(debug_buf,
-                                            "Item %d: add_runtime_item failed for [%s.%s]\n",
-                                            item_count, item->string, sub_item->string);
-                        WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-                        CloseHandle(debug_file);
-                    }
                     cJSON_Delete(root);
                     free_runtime_map();
                     return false;
@@ -401,41 +363,11 @@ static bool parse_runtime_map_json(char *json_text) {
             }
             continue;
         }
-
-        /* Unknown top-level value type: skip to stay tolerant */
-        {
-            debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                     FILE_SHARE_READ, NULL,
-                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-            if (debug_file != INVALID_HANDLE_VALUE) {
-                debug_len = sprintf(debug_buf, "Item %d: [%s] has unsupported value type\n", item_count, item->string);
-                WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-                CloseHandle(debug_file);
-            }
-        }
     }
 
     cJSON_Delete(root);
 
-    debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                             FILE_SHARE_READ, NULL,
-                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (debug_file != INVALID_HANDLE_VALUE) {
-        char debug_buf[128];
-        int debug_len = sprintf(debug_buf, "Parse complete: processed %d items, added %u to runtime map\n",
-                                item_count, (unsigned int) g_runtime_map_count);
-        WriteFile(debug_file, debug_buf, debug_len, &written, NULL);
-        CloseHandle(debug_file);
-    }
-
     if (g_runtime_map_count == 0) {
-        debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                 FILE_SHARE_READ, NULL,
-                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (debug_file != INVALID_HANDLE_VALUE) {
-            WriteFile(debug_file, "ERROR: g_runtime_map_count is 0\n", 34, &written, NULL);
-            CloseHandle(debug_file);
-        }
         free_runtime_map();
         return false;
     }
@@ -453,8 +385,7 @@ static void load_runtime_map_from_resource(HMODULE module) {
     DWORD res_size;
     const char *res_ptr;
     char *json_text;
-    HANDLE debug_file;
-    DWORD written;
+    bool parsed_ok;
 
     if (!module) {
         return;
@@ -488,44 +419,13 @@ static void load_runtime_map_from_resource(HMODULE module) {
     memcpy(json_text, res_ptr, res_size);
     json_text[res_size] = '\0';
 
-
-    /* Debug: dump loaded JSON content */
-    debug_file = CreateFileA("winmm_debug.txt", FILE_WRITE_DATA,
-                             FILE_SHARE_READ, NULL,
-                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (debug_file != INVALID_HANDLE_VALUE) {
-        // WriteFile(debug_file, "=== JSON LOADED ===\n", 21, &written, NULL);
-        WriteFile(debug_file, json_text, res_size, &written, NULL);
-        WriteFile(debug_file, "\n=== JSON SIZE ===\n", 20, &written, NULL);
-        char size_buf[64];
-        size_t size_len = (size_t) sprintf(size_buf, "%u bytes\n", res_size);
-        WriteFile(debug_file, size_buf, (DWORD) size_len, &written, NULL);
-        CloseHandle(debug_file);
-    }
-
     free_runtime_map();
-    if (parse_runtime_map_json(json_text)) {
-        /* Debug: dump parsed entries */
-        debug_file = CreateFileA("winmm_debug.txt", FILE_APPEND_DATA,
-                                 FILE_SHARE_READ, NULL,
-                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (debug_file != INVALID_HANDLE_VALUE) {
-            char count_buf[64];
-            size_t count_len = (size_t) sprintf(count_buf, "=== PARSED %u ENTRIES ===\n",
-                                                (unsigned int) g_runtime_map_count);
-            WriteFile(debug_file, count_buf, (DWORD) count_len, &written, NULL);
-            for (size_t i = 0; i < g_runtime_map_count && i < 5; ++i) {
-                WriteFile(debug_file, "[", 1, &written, NULL);
-                WriteFile(debug_file, g_runtime_map[i].en, (DWORD) strlen(g_runtime_map[i].en), &written, NULL);
-                WriteFile(debug_file, "] => [", 6, &written, NULL);
-                WriteFile(debug_file, g_runtime_map[i].zh, (DWORD) strlen(g_runtime_map[i].zh), &written, NULL);
-                WriteFile(debug_file, "]\n", 2, &written, NULL);
-            }
-            CloseHandle(debug_file);
-        }
-    } else {
+    parsed_ok = parse_runtime_map_json(json_text);
+    if (!parsed_ok) {
         free_runtime_map();
     }
+
+    dump_json_loaded_count(parsed_ok ? g_runtime_map_count : 0);
 
     free(json_text);
 }
@@ -2261,8 +2161,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
         DisableThreadLibraryCalls(hModule);
         InitializeCriticalSection(&g_dump_lock);
         g_dump_lock_ready = true;
-        load_runtime_map_from_resource(hModule);
         init_dump_file();
+        load_runtime_map_from_resource(hModule);
         install_text_hooks();
         install_symbol_hook("vpline", "vpline", "*vpline*", (LPVOID) hook_vpline,
                             (LPVOID *) &g_orig_vpline);
