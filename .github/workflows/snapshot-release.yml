@@ -60,6 +60,14 @@ jobs:
     runs-on: windows-latest
     needs: build
     steps:
+      - name: Prepare release tag
+        id: tag
+        shell: pwsh
+        run: |
+          $shortSha = "${{ github.sha }}".Substring(0, 12)
+          $tag = "snapshot-$shortSha"
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Download x64 artifact
         uses: actions/download-artifact@v4
         with:
@@ -75,8 +83,8 @@ jobs:
       - name: Create snapshot release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.sha }}
-          name: Snapshot ${{ github.sha }}
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Snapshot ${{ steps.tag.outputs.tag }}
           prerelease: true
           generate_release_notes: true
           files: |
