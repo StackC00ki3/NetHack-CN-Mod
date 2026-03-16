@@ -1831,13 +1831,7 @@
     "jump": "跳",
     "teleport": "传送",
     "teleport control": "传送控制",
-    "%s%s%s": {
-      "fmt": "%s%s%s的话",
-      "arg": {
-        "if not trapped": "如果未被困",
-        "and": "和"
-      }
-    },
+    "if not trapped": "如果未被困",
     "would levitate": "快飘起来",
     "would have levitated": "快飘起来",
     "would fly": "会飞起来",
@@ -19970,6 +19964,7 @@
       "arg": {}
     }
   },
+  "The ": "",
   "Who are you?": "你是谁?",
   "St:": "力:",
   "Dx:": "敏:",
