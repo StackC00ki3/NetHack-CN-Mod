@@ -1,6 +1,14 @@
 # NetHackW 汉化模组
 
+[![Build Status](https://github.com/StackC00ki3/NetHack-CN-Mod/actions/workflows/snapshot-release.yml/badge.svg)](https://github.com/StackC00ki3/NetHack-CN-Mod/releases)
+
 一个把 winmm.dll 放到 NetHackW.exe 同目录即可使用的 nethack 汉化模组。
+
+## 快速开始
+
+无需本地编译，可直接在[本项目 Release 页面](https://github.com/StackC00ki3/NetHack-CN-Mod/releases)下载已经构建好的 `winmm.dll`（请按 nethack 的架构选择对应架构的 `winmm.dll`，**官方win版是 x86 的**）。
+
+下载后把 dll 重命名为 `winmm.dll` 并放到 `NetHackW.exe` 同目录即可使用。
 
 ## 使用
 
