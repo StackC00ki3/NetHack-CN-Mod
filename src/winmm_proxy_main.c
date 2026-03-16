@@ -1982,10 +1982,75 @@ static void *resolve_vpline_by_signature(void) {
     return addr;
 }
 
+typedef struct {
+    const char *en_prefix;
+    const char *zh_prefix;
+} vpline_prefix_item;
+
+static const vpline_prefix_item g_vpline_prefix_map[] = {
+    {"You dream that you feel ", "你梦见自己感觉"},
+    {"You dream that you hear ", "你梦见自己听见"},
+    {"You dream that you see ", "你梦见自己看见"},
+    {"You barely hear ", "你勉强听见"},
+    {"You can't ", "你不能"},
+    {"You feel ", "你感觉"},
+    {"You hear ", "你听见"},
+    {"You sense ", "你感知到"},
+    {"You see ", "你看见"},
+    {"Your ", "你的"},
+    {"You ", "你"}
+};
+
+static bool split_vpline_prefix(const char *line, const char **tail_out, const char **zh_prefix_out) {
+    size_t i;
+
+    if (!line || !tail_out || !zh_prefix_out) {
+        return false;
+    }
+
+    *tail_out = line;
+    *zh_prefix_out = NULL;
+
+    for (i = 0; i < sizeof(g_vpline_prefix_map) / sizeof(g_vpline_prefix_map[0]); ++i) {
+        size_t n = strlen(g_vpline_prefix_map[i].en_prefix);
+        if (strncmp(line, g_vpline_prefix_map[i].en_prefix, n) == 0) {
+            *tail_out = line + n;
+            *zh_prefix_out = g_vpline_prefix_map[i].zh_prefix;
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static char *concat_two_alloc(const char *left, const char *right) {
+    size_t left_len, right_len;
+    char *out;
+
+    if (!left || !right) {
+        return NULL;
+    }
+
+    left_len = strlen(left);
+    right_len = strlen(right);
+    out = (char *) malloc(left_len + right_len + 1);
+    if (!out) {
+        return NULL;
+    }
+
+    memcpy(out, left, left_len);
+    memcpy(out + left_len, right, right_len);
+    out[left_len + right_len] = '\0';
+    return out;
+}
+
 static void __cdecl hook_vpline(const char *line, va_list the_args) {
     char *replaced = NULL;
-    const char *translated = line;
-    const char *final_text = line;
+    char *prefixed_alloc = NULL;
+    const char *translated;
+    const char *final_text;
+    const char *tail = line;
+    const char *zh_prefix = NULL;
     const zh_fmt_item *fi;
 
     if (!g_orig_vpline) {
@@ -2000,39 +2065,59 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     dump_intercepted_text("vpline.before", line, -1);
     dump_vpline_arguments(line, the_args);
 
+    split_vpline_prefix(line, &tail, &zh_prefix);
+
     /* Check for fmt/arg format first */
-    fi = find_fmt_item(line);
+    fi = find_fmt_item(tail);
     if (fi) {
         char *arg_allocs[MAX_FMT_ARG_ALLOCS];
         int alloc_count, i;
+        const char *fmt_out = fi->fmt_zh;
 
-        alloc_count = translate_vpline_args(line, the_args, fi,
+        alloc_count = translate_vpline_args(tail, the_args, fi,
                                             arg_allocs, MAX_FMT_ARG_ALLOCS);
-        dump_intercepted_text("vpline.after", fi->fmt_zh, -1);
-        g_orig_vpline(fi->fmt_zh, the_args);
+        if (zh_prefix) {
+            prefixed_alloc = concat_two_alloc(zh_prefix, fi->fmt_zh);
+            if (prefixed_alloc) {
+                fmt_out = prefixed_alloc;
+            }
+        }
+
+        dump_intercepted_text("vpline.after", fmt_out, -1);
+        g_orig_vpline(fmt_out, the_args);
+
+        free(prefixed_alloc);
 
         for (i = 0; i < alloc_count; ++i)
             free(arg_allocs[i]);
         return;
     }
 
-    translated = translate_text(line, -1);
-    if (translated == line) {
+    translated = translate_text(tail, -1);
+    if (translated == tail) {
         /* Skip substring replacement for format strings – it would corrupt
            format specifiers and produce garbled mixed-language output. */
-        if (!has_printf_format_spec(line)) {
-            replaced = translate_text_contains_alloc(line, -1);
-            translated = replaced ? replaced : line;
+        if (!has_printf_format_spec(tail)) {
+            replaced = translate_text_contains_alloc(tail, -1);
+            translated = replaced ? replaced : tail;
         }
     }
-    final_text = translated;
 
-    if (translated != line) {
-        dump_intercepted_text("vpline.after", translated, -1);
+    final_text = translated;
+    if (zh_prefix) {
+        prefixed_alloc = concat_two_alloc(zh_prefix, final_text);
+        if (prefixed_alloc) {
+            final_text = prefixed_alloc;
+        }
+    }
+
+    if (final_text != line) {
+        dump_intercepted_text("vpline.after", final_text, -1);
     }
 
     g_orig_vpline(final_text, the_args);
 
+    free(prefixed_alloc);
     free(replaced);
 }
 
