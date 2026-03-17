@@ -858,13 +858,8 @@
         "wearing lenses": "戴着眼镜了"
       }
     },
-    "%s %s.": {
-      "fmt": "%s%s光芒.",
-      "arg": {
-        "glow": "发出",
-        "brown": "褐色"
-      }
-    }
+    "glow": "发出",
+    "brown": "褐色"
   },
   "artifact.c": {
     "are blasted by %s power!": {
@@ -9623,7 +9618,7 @@
       }
     }
   },
-    "monst.c": {
+  "monst.c": {
     "giant ant": "巨型蚂蚁",
     "killer bee": "杀人蜂",
     "soldier ant": "兵蚁",
@@ -20915,5 +20910,7 @@
   "C-ration": "C口粮",
   "C-rations": "C口粮",
   "tin": "罐头",
-  "tins": "罐头"
+  "tins": "罐头",
+  "the ": "",
+  "the": ""
 }
