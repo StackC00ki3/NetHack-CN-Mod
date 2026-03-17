@@ -99,12 +99,61 @@ def extract_strings_from_lines(lines: Sequence[str]) -> List[str]:
     return out
 
 
+def _pair_strings(
+    en_strs: List[str], zh_strs: List[str]
+) -> List[Tuple[str, str]]:
+    """Pair English strings with their Chinese translations.
+
+    Handles two patterns:
+    1. Replacement: EN string is replaced by ZH string.
+    2. Addition: EN string is kept and a ZH translation is added alongside it,
+       so the ZH side has more string literals than the EN side.
+    """
+    pairs: List[Tuple[str, str]] = []
+
+    # Detect "added parameter" pattern: ZH has more strings and every EN
+    # string also appears on the ZH side (the original EN names were kept,
+    # and Chinese translations were inserted next to them).
+    if len(zh_strs) > len(en_strs) and en_strs:
+        zh_remaining = list(zh_strs)
+        all_found = True
+        for e in en_strs:
+            try:
+                zh_remaining.remove(e)
+            except ValueError:
+                all_found = False
+                break
+
+        if all_found:
+            # zh_remaining now holds only the added translations.
+            n = min(len(en_strs), len(zh_remaining))
+            for k in range(n):
+                e = en_strs[k].strip()
+                z = zh_remaining[k].strip()
+                if e and z and e != z:
+                    pairs.append((e, z))
+            return pairs
+
+    # Default: pair by position.
+    n = min(len(en_strs), len(zh_strs))
+    for k in range(n):
+        e = en_strs[k].strip()
+        z = zh_strs[k].strip()
+        if e and z and e != z:
+            pairs.append((e, z))
+
+    return pairs
+
+
 def pair_changed_strings(
     en_lines: Sequence[str], zh_lines: Sequence[str]
 ) -> List[Tuple[str, str]]:
     """
-    Compare changed line blocks and pair string literals by position
-    inside replace hunks.
+    Compare changed line blocks and pair string literals.
+
+    When both sides of a replace hunk have the same number of lines,
+    strings are paired line-by-line for accuracy.  Otherwise strings
+    from the whole block are paired by position.
     """
     pairs: List[Tuple[str, str]] = []
     sm = difflib.SequenceMatcher(a=en_lines, b=zh_lines, autojunk=False)
@@ -115,19 +164,16 @@ def pair_changed_strings(
         en_block = en_lines[i1:i2]
         zh_block = zh_lines[j1:j2]
 
-        en_strs = extract_strings_from_lines(en_block)
-        zh_strs = extract_strings_from_lines(zh_block)
-
-        # Pair by order within this changed block.
-        n = min(len(en_strs), len(zh_strs))
-        for k in range(n):
-            e = en_strs[k].strip()
-            z = zh_strs[k].strip()
-            if not e or not z:
-                continue
-            if e == z:
-                continue
-            pairs.append((e, z))
+        if len(en_block) == len(zh_block):
+            # Process line-by-line to avoid cross-line positional shift.
+            for idx in range(len(en_block)):
+                en_strs = extract_strings_from_lines([en_block[idx]])
+                zh_strs = extract_strings_from_lines([zh_block[idx]])
+                pairs.extend(_pair_strings(en_strs, zh_strs))
+        else:
+            en_strs = extract_strings_from_lines(en_block)
+            zh_strs = extract_strings_from_lines(zh_block)
+            pairs.extend(_pair_strings(en_strs, zh_strs))
 
     return pairs
 
