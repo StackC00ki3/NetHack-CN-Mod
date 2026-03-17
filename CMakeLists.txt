@@ -40,6 +40,19 @@ set_target_properties(winmm PROPERTIES
     OUTPUT_NAME "winmm"
 )
 
+# Optional: copy only winmm.dll to a drop-in directory after build.
+set(WINMM_DROPIN_DIR "" CACHE PATH "Directory to copy built winmm.dll into")
+if(WINMM_DROPIN_DIR)
+    add_custom_command(TARGET winmm POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WINMM_DROPIN_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:winmm>"
+            "${WINMM_DROPIN_DIR}/$<TARGET_FILE_NAME:winmm>"
+        COMMENT "Copying winmm.dll to ${WINMM_DROPIN_DIR}"
+        VERBATIM
+    )
+endif()
+
 set(RES_FILES "locales/zh-CN.json")
 
 foreach(FILE ${RES_FILES})
