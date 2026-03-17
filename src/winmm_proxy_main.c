@@ -1076,6 +1076,125 @@ static int translate_vpline_args(const char *fmt, va_list args,
     return alloc_count;
 }
 
+/*
+ * translate_vpline_args_generic  –  translate %s arguments in the va_list
+ * using translate_text / translate_text_contains_alloc when find_fmt_item()
+ * found no match.  Same va_list walking logic as translate_vpline_args but
+ * performs generic dictionary lookup instead of zh_fmt_item lookup.
+ */
+static int translate_vpline_args_generic(const char *fmt, va_list args,
+                                         char *allocs[], int max_allocs) {
+    va_list ap;
+    const char *p;
+    int alloc_count = 0;
+    vpline_len_mod len_mod;
+    char conv;
+
+    va_copy(ap, args);
+    p = fmt;
+
+    while (*p) {
+        len_mod = VPL_LEN_NONE;
+
+        if (*p != '%') { ++p; continue; }
+        ++p;
+        if (*p == '%') { ++p; continue; }
+
+        /* flags */
+        while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') ++p;
+        /* width */
+        if (*p == '*') { va_arg(ap, int); ++p; }
+        else { while (*p >= '0' && *p <= '9') ++p; }
+        /* precision */
+        if (*p == '.') {
+            ++p;
+            if (*p == '*') { va_arg(ap, int); ++p; }
+            else { while (*p >= '0' && *p <= '9') ++p; }
+        }
+        /* length modifier */
+        if (*p == 'h' && *(p + 1) == 'h') { len_mod = VPL_LEN_HH; p += 2; }
+        else if (*p == 'h') { len_mod = VPL_LEN_H; ++p; }
+        else if (*p == 'l' && *(p + 1) == 'l') { len_mod = VPL_LEN_LL; p += 2; }
+        else if (*p == 'l') { len_mod = VPL_LEN_L; ++p; }
+        else if (*p == 'j') { len_mod = VPL_LEN_J; ++p; }
+        else if (*p == 'z') { len_mod = VPL_LEN_Z; ++p; }
+        else if (*p == 't') { len_mod = VPL_LEN_T; ++p; }
+        else if (*p == 'L') { len_mod = VPL_LEN_CAP_L; ++p; }
+
+        conv = *p;
+        if (!conv) break;
+        ++p;
+
+        if (conv == 's') {
+            if (len_mod == VPL_LEN_L) {
+                va_arg(ap, const wchar_t *);
+            } else {
+                const char **slot = (const char **) ap;
+                const char *s = va_arg(ap, const char *);
+
+                if (s) {
+                    const char *zh = translate_text(s, -1);
+                    if (zh != s) {
+                        /* Full translation found */
+                        if (alloc_count < max_allocs) {
+                            char *dup = _strdup(zh);
+                            if (dup) {
+                                *slot = dup;
+                                allocs[alloc_count++] = dup;
+                            }
+                        }
+                    } else {
+                        /* Try partial translation */
+                        char *partial = translate_text_contains_alloc(s, -1);
+                        if (partial) {
+                            if (alloc_count < max_allocs) {
+                                *slot = partial;
+                                allocs[alloc_count++] = partial;
+                            } else {
+                                free(partial);
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (conv == 'd' || conv == 'i') {
+            if (len_mod == VPL_LEN_LL) va_arg(ap, long long);
+            else if (len_mod == VPL_LEN_L) va_arg(ap, long);
+            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t);
+            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
+            else va_arg(ap, int);
+        } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+            if (len_mod == VPL_LEN_LL) va_arg(ap, unsigned long long);
+            else if (len_mod == VPL_LEN_L) va_arg(ap, unsigned long);
+            else if (len_mod == VPL_LEN_J) va_arg(ap, uintmax_t);
+            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
+            else va_arg(ap, unsigned int);
+        } else if (conv == 'c') {
+            va_arg(ap, int);
+        } else if (conv == 'p') {
+            va_arg(ap, void *);
+        } else if (conv == 'n') {
+            if (len_mod == VPL_LEN_HH) va_arg(ap, signed char *);
+            else if (len_mod == VPL_LEN_H) va_arg(ap, short *);
+            else if (len_mod == VPL_LEN_L) va_arg(ap, long *);
+            else if (len_mod == VPL_LEN_LL) va_arg(ap, long long *);
+            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t *);
+            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t *);
+            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t *);
+            else va_arg(ap, int *);
+        } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
+                   conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
+            if (len_mod == VPL_LEN_CAP_L) va_arg(ap, long double);
+            else va_arg(ap, double);
+        }
+    }
+
+    va_end(ap);
+    return alloc_count;
+}
+
 static void dump_vpline_arguments(const char *fmt, va_list args) {
     const char *p;
     va_list ap;
@@ -1975,6 +2094,8 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     const char *tail = line;
     const char *zh_prefix = NULL;
     const zh_fmt_item *fi;
+    char *gen_arg_allocs[MAX_FMT_ARG_ALLOCS];
+    int gen_alloc_count = 0, gen_i;
 
     if (!g_orig_vpline) {
         return;
@@ -2026,6 +2147,12 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
         }
     }
 
+    /* Translate %s arguments generically when no fmt_item matched */
+    if (has_printf_format_spec(tail)) {
+        gen_alloc_count = translate_vpline_args_generic(tail, the_args,
+                                            gen_arg_allocs, MAX_FMT_ARG_ALLOCS);
+    }
+
     final_text = translated;
     if (zh_prefix) {
         prefixed_alloc = concat_two_alloc(zh_prefix, final_text);
@@ -2042,6 +2169,9 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
 
     free(prefixed_alloc);
     free(replaced);
+
+    for (gen_i = 0; gen_i < gen_alloc_count; ++gen_i)
+        free(gen_arg_allocs[gen_i]);
 }
 
 static void __cdecl hook_putstr(int winid, int attr, const char *text) {
