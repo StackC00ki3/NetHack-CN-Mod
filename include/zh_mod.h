@@ -65,6 +65,13 @@ typedef struct {
     size_t arg_count;
 } zh_fmt_item;
 
+typedef struct {
+    char *tmpl_en;
+    char *tmpl_zh;
+    zh_arg_item *args;
+    size_t arg_count;
+} zh_tmpl_item;
+
 typedef enum {
     VPL_LEN_NONE = 0,
     VPL_LEN_HH,
@@ -100,6 +107,8 @@ extern zh_runtime_item *g_runtime_map;
 extern size_t g_runtime_map_count;
 extern zh_fmt_item *g_fmt_map;
 extern size_t g_fmt_map_count;
+extern zh_tmpl_item *g_tmpl_map;
+extern size_t g_tmpl_map_count;
 extern bool g_sym_initialized;
 
 /* ---------- zh_dump.c ---------- */
@@ -114,6 +123,7 @@ void dump_vpline_arguments(const char *fmt, va_list args);
 
 void free_runtime_map(void);
 void free_fmt_map(void);
+void free_tmpl_map(void);
 void load_runtime_map_from_resource(HMODULE module);
 bool has_printf_format_spec(const char *s);
 char *utf8_to_local_alloc(const char *utf8_str);

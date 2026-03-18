@@ -63,6 +63,29 @@ void free_fmt_map(void) {
     g_fmt_map_count = 0;
 }
 
+void free_tmpl_map(void) {
+    size_t i, j;
+
+    if (!g_tmpl_map) {
+        g_tmpl_map_count = 0;
+        return;
+    }
+
+    for (i = 0; i < g_tmpl_map_count; ++i) {
+        free(g_tmpl_map[i].tmpl_en);
+        free(g_tmpl_map[i].tmpl_zh);
+        for (j = 0; j < g_tmpl_map[i].arg_count; ++j) {
+            free(g_tmpl_map[i].args[j].arg_en);
+            free(g_tmpl_map[i].args[j].arg_zh);
+        }
+        free(g_tmpl_map[i].args);
+    }
+
+    free(g_tmpl_map);
+    g_tmpl_map = NULL;
+    g_tmpl_map_count = 0;
+}
+
 static char *dup_string(const char *src) {
     size_t n;
     char *dst;
@@ -186,6 +209,62 @@ static bool add_fmt_item(const char *en, cJSON *obj) {
     return true;
 }
 
+static bool add_tmpl_item(const char *en, cJSON *obj) {
+    cJSON *tmpl_node, *arg_node, *arg_item;
+    zh_tmpl_item *items;
+    zh_tmpl_item *ti;
+    size_t new_count;
+
+    tmpl_node = cJSON_GetObjectItemCaseSensitive(obj, "tmpl");
+    if (!tmpl_node || !cJSON_IsString(tmpl_node) || !tmpl_node->valuestring) {
+        return false;
+    }
+
+    new_count = g_tmpl_map_count + 1;
+    items = (zh_tmpl_item *) realloc(g_tmpl_map, new_count * sizeof(zh_tmpl_item));
+    if (!items) {
+        return false;
+    }
+
+    g_tmpl_map = items;
+    ti = &g_tmpl_map[g_tmpl_map_count];
+    ti->tmpl_en = dup_string(en);
+    ti->tmpl_zh = dup_string(tmpl_node->valuestring);
+    ti->args = NULL;
+    ti->arg_count = 0;
+
+    if (!ti->tmpl_en || !ti->tmpl_zh) {
+        free(ti->tmpl_en);
+        free(ti->tmpl_zh);
+        return false;
+    }
+
+    arg_node = cJSON_GetObjectItemCaseSensitive(obj, "arg");
+    if (arg_node && cJSON_IsObject(arg_node)) {
+        cJSON_ArrayForEach(arg_item, arg_node) {
+            zh_arg_item *arg_items;
+
+            if (!arg_item->string || !cJSON_IsString(arg_item)) {
+                continue;
+            }
+
+            arg_items = (zh_arg_item *) realloc(ti->args,
+                                                (ti->arg_count + 1) * sizeof(zh_arg_item));
+            if (!arg_items) {
+                continue;
+            }
+            ti->args = arg_items;
+            ti->args[ti->arg_count].arg_en = dup_string(arg_item->string);
+            ti->args[ti->arg_count].arg_zh = dup_string(
+                arg_item->valuestring ? arg_item->valuestring : "");
+            ti->arg_count++;
+        }
+    }
+
+    g_tmpl_map_count = new_count;
+    return true;
+}
+
 static bool parse_runtime_map_json(char *json_text) {
     cJSON *root = NULL;
     cJSON *item = NULL;
@@ -231,6 +310,11 @@ static bool parse_runtime_map_json(char *json_text) {
                 add_fmt_item(item->string, item);
                 continue;
             }
+            /* Check if this is a tmpl/arg object at top level */
+            if (cJSON_GetObjectItemCaseSensitive(item, "tmpl")) {
+                add_tmpl_item(item->string, item);
+                continue;
+            }
 
             cJSON_ArrayForEach(sub_item, item) {
                 if (!sub_item->string || is_meta_key(sub_item->string)) {
@@ -241,6 +325,11 @@ static bool parse_runtime_map_json(char *json_text) {
                 if (cJSON_IsObject(sub_item)) {
                     if (cJSON_GetObjectItemCaseSensitive(sub_item, "fmt")) {
                         add_fmt_item(sub_item->string, sub_item);
+                        continue;
+                    }
+                    /* Check if sub_item is a tmpl/arg object */
+                    if (cJSON_GetObjectItemCaseSensitive(sub_item, "tmpl")) {
+                        add_tmpl_item(sub_item->string, sub_item);
                         continue;
                     }
                 }
@@ -733,12 +822,184 @@ const char *translate_text(const char *src, int length) {
     return translate_exact(src);
 }
 
+/*
+ * Try to match a template pattern against input string.
+ * Template format: "prefix %s suffix" or "%s suffix" or "prefix %s"
+ * Returns allocated string with translated result, or NULL if no match.
+ */
+static char *try_match_template(const char *input, const zh_tmpl_item *ti) {
+    const char *tmpl = ti->tmpl_en;
+    const char *p = tmpl;
+    const char *in = input;
+    char *captured[16];  /* max 16 %s placeholders */
+    int capture_count = 0;
+    const char *last_literal_end = tmpl;
+    size_t out_len = 0;
+    char *output;
+    char *w;
+    int i;
+
+    /* Parse template and extract captured arguments */
+    while (*p) {
+        if (*p == '%' && *(p + 1) == 's') {
+            /* Match literal prefix before %s */
+            size_t prefix_len = p - last_literal_end;
+            if (prefix_len > 0) {
+                if (strncmp(in, last_literal_end, prefix_len) != 0) {
+                    goto cleanup_fail;
+                }
+                in += prefix_len;
+            }
+
+            /* Find end of captured argument */
+            p += 2;  /* skip %s */
+            last_literal_end = p;
+
+            /* Find next literal or end of string */
+            const char *next_literal = p;
+            while (*next_literal && !(*next_literal == '%' && *(next_literal + 1) == 's')) {
+                next_literal++;
+            }
+
+            size_t literal_len = next_literal - p;
+            const char *arg_end;
+
+            if (literal_len > 0) {
+                /* Find where the next literal starts in input */
+                arg_end = strstr(in, p);
+                if (!arg_end) {
+                    goto cleanup_fail;
+                }
+            } else {
+                /* %s is at the end, capture rest of string */
+                arg_end = in + strlen(in);
+            }
+
+            /* Capture the argument */
+            if (capture_count < 16) {
+                size_t arg_len = arg_end - in;
+                captured[capture_count] = (char *) malloc(arg_len + 1);
+                if (captured[capture_count]) {
+                    memcpy(captured[capture_count], in, arg_len);
+                    captured[capture_count][arg_len] = '\0';
+                    capture_count++;
+                }
+            }
+
+            in = arg_end;
+        } else {
+            p++;
+        }
+    }
+
+    /* Match trailing literal */
+    size_t trailing_len = p - last_literal_end;
+    if (trailing_len > 0) {
+        if (strncmp(in, last_literal_end, trailing_len) != 0 || in[trailing_len] != '\0') {
+            goto cleanup_fail;
+        }
+    } else {
+        if (*in != '\0') {
+            goto cleanup_fail;
+        }
+    }
+
+    /* Translate captured arguments */
+    for (i = 0; i < capture_count; ++i) {
+        const char *translated = NULL;
+        size_t j;
+
+        /* Try arg dictionary first */
+        for (j = 0; j < ti->arg_count; ++j) {
+            if (strcmp(captured[i], ti->args[j].arg_en) == 0) {
+                translated = ti->args[j].arg_zh;
+                break;
+            }
+        }
+
+        /* Fallback to runtime_map */
+        if (!translated) {
+            translated = translate_exact(captured[i]);
+            if (translated == captured[i]) {
+                translated = NULL;
+            }
+        }
+
+        if (translated) {
+            free(captured[i]);
+            captured[i] = dup_string(translated);
+        }
+    }
+
+    /* Build output string by replacing %s in tmpl_zh with translated args */
+    p = ti->tmpl_zh;
+    i = 0;
+    while (*p) {
+        if (*p == '%' && *(p + 1) == 's') {
+            if (i < capture_count && captured[i]) {
+                out_len += strlen(captured[i]);
+            }
+            i++;
+            p += 2;
+        } else {
+            out_len++;
+            p++;
+        }
+    }
+
+    output = (char *) malloc(out_len + 1);
+    if (!output) {
+        goto cleanup_fail;
+    }
+
+    w = output;
+    p = ti->tmpl_zh;
+    i = 0;
+    while (*p) {
+        if (*p == '%' && *(p + 1) == 's') {
+            if (i < capture_count && captured[i]) {
+                size_t len = strlen(captured[i]);
+                memcpy(w, captured[i], len);
+                w += len;
+            }
+            i++;
+            p += 2;
+        } else {
+            *w++ = *p++;
+        }
+    }
+    *w = '\0';
+
+    /* Cleanup */
+    for (i = 0; i < capture_count; ++i) {
+        free(captured[i]);
+    }
+
+    return output;
+
+cleanup_fail:
+    for (i = 0; i < capture_count; ++i) {
+        free(captured[i]);
+    }
+    return NULL;
+}
+
 char *translate_text_contains_alloc(const char *src, int length) {
     char *from_runtime;
     char *from_builtin;
+    char *from_tmpl;
+    size_t i;
 
     if (!should_translate(src, length)) {
         return NULL;
+    }
+
+    /* Try template matching first (most specific) */
+    for (i = 0; i < g_tmpl_map_count; ++i) {
+        from_tmpl = try_match_template(src, &g_tmpl_map[i]);
+        if (from_tmpl) {
+            return from_tmpl;
+        }
     }
 
     from_runtime = replace_from_runtime_map(src, length);

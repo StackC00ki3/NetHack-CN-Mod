@@ -12364,31 +12364,31 @@
       "arg": {}
     },
     "Look inside %s": {
-      "fmt": "查看%s的里面",
+      "tmpl": "查看%s的里面",
       "arg": {}
     },
     "take %s out": {
-      "fmt": "取出%s",
+      "tmpl": "取出%s",
       "arg": {}
     },
     "put %s in": {
-      "fmt": "放入%s",
+      "tmpl": "放入%s",
       "arg": {}
     },
     "%stake out, then put in": {
-      "fmt": "%s取出, 然后放入",
+      "tmpl": "%s取出, 然后放入",
       "arg": {
-        "both;": "先"
+        "both; ": "先"
       }
     },
     "%sput in, then take out": {
-      "fmt": "%s放入, 然后取出",
+      "tmpl": "%s放入, 然后取出",
       "arg": {
-        "both reversed;": "先"
+        "both reversed; ": "先"
       }
     },
     "stash one item into %s": {
-      "fmt": "把一项藏匿到%s",
+      "tmpl": "把一项藏匿到%s",
       "arg": {}
     },
     "loot next container": "搜刮下一个箱子",

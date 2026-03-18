@@ -23,6 +23,8 @@ zh_runtime_item *g_runtime_map = NULL;
 size_t g_runtime_map_count = 0;
 zh_fmt_item *g_fmt_map = NULL;
 size_t g_fmt_map_count = 0;
+zh_tmpl_item *g_tmpl_map = NULL;
+size_t g_tmpl_map_count = 0;
 bool g_sym_initialized = false;
 
 /* ---------- winmm proxy forwarding ---------- */
@@ -135,6 +137,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
         }
         free_runtime_map();
         free_fmt_map();
+        free_tmpl_map();
         if (g_dump_file != INVALID_HANDLE_VALUE) {
             CloseHandle(g_dump_file);
             g_dump_file = INVALID_HANDLE_VALUE;
