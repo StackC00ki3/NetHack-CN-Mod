@@ -11467,10 +11467,7 @@
     "locked": "上锁的",
     "unlocked": "未锁的",
     "greased": "上油的",
-    "containing %ld item%s": {
-      "fmt": "包含%ld件物品",
-      "arg": {}
-    },
+    " containing ": "装有",
     "(being worn)": "(穿戴中)",
     "(embedded in your skin)": "(嵌在你的皮肤里)",
     "(being doffed)": "(脱下中)",
@@ -12202,9 +12199,10 @@
     "%sopen %s...": {
       "fmt": "%s打开%s...",
       "arg": {
-        "carefully": "小心地"
+        "carefully ": "小心地"
       }
     },
+    "carefully ": "小心地",
     "don't find anything": "没有找到任何",
     "have no hands!": "没有手!",
     "Being confused, you find nothing to loot.": "处于混乱之中, 你找不到任何东西来搜刮.",

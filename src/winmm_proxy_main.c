@@ -13,6 +13,7 @@
 #include "MinHook.h"
 #include "resource.h"
 
+#define MAX_FMT_ARG_ALLOCS 16
 /*
  * NetHackW drop-in localization mod:
  * 1) Built as winmm.dll proxy (loaded automatically by NetHackW.exe)
@@ -34,6 +35,7 @@ typedef int (WINAPI *PFN_DrawTextA)(HDC, LPCSTR, int, LPRECT, UINT);
 typedef BOOL (WINAPI *PFN_TextOutA)(HDC, int, int, LPCSTR, int);
 
 typedef void (__cdecl *PFN_vpline)(const char *, va_list);
+
 typedef void (__cdecl *PFN_putstr)(int, int, const char *);
 
 #define WINMM_EXPORT __declspec(dllexport)
@@ -59,6 +61,18 @@ typedef struct {
     zh_arg_item *args;
     size_t arg_count;
 } zh_fmt_item;
+
+typedef enum {
+    VPL_LEN_NONE = 0,
+    VPL_LEN_HH,
+    VPL_LEN_H,
+    VPL_LEN_L,
+    VPL_LEN_LL,
+    VPL_LEN_J,
+    VPL_LEN_Z,
+    VPL_LEN_T,
+    VPL_LEN_CAP_L
+} vpline_len_mod;
 
 static HMODULE g_real_winmm = NULL;
 static PFN_PlaySoundA g_real_PlaySoundA = NULL;
@@ -274,7 +288,7 @@ static bool add_fmt_item(const char *en, cJSON *obj) {
             }
 
             arg_items = (zh_arg_item *) realloc(fi->args,
-                (fi->arg_count + 1) * sizeof(zh_arg_item));
+                                                (fi->arg_count + 1) * sizeof(zh_arg_item));
             if (!arg_items) {
                 continue;
             }
@@ -883,6 +897,228 @@ static const zh_fmt_item *find_fmt_item(const char *fmt_en) {
     return NULL;
 }
 
+/*
+ * Peek at the va_list and collect the actual %s argument values without
+ * modifying the original va_list.  Returns the number of %s arguments found.
+ */
+static int collect_str_args(const char *fmt, va_list args,
+                            const char *out[], int max_out) {
+    va_list ap;
+    const char *p;
+    int count = 0;
+    vpline_len_mod len_mod;
+    char conv;
+
+    va_copy(ap, args);
+    p = fmt;
+
+    while (*p) {
+        len_mod = VPL_LEN_NONE;
+
+        if (*p != '%') {
+            ++p;
+            continue;
+        }
+        ++p;
+        if (*p == '%') {
+            ++p;
+            continue;
+        }
+
+        /* flags */
+        while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') ++p;
+        /* width */
+        if (*p == '*') {
+            va_arg(ap, int);
+            ++p;
+        } else { while (*p >= '0' && *p <= '9') ++p; }
+        /* precision */
+        if (*p == '.') {
+            ++p;
+            if (*p == '*') {
+                va_arg(ap, int);
+                ++p;
+            } else { while (*p >= '0' && *p <= '9') ++p; }
+        }
+        /* length modifier */
+        if (*p == 'h' && *(p + 1) == 'h') {
+            len_mod = VPL_LEN_HH;
+            p += 2;
+        } else if (*p == 'h') {
+            len_mod = VPL_LEN_H;
+            ++p;
+        } else if (*p == 'l' && *(p + 1) == 'l') {
+            len_mod = VPL_LEN_LL;
+            p += 2;
+        } else if (*p == 'l') {
+            len_mod = VPL_LEN_L;
+            ++p;
+        } else if (*p == 'j') {
+            len_mod = VPL_LEN_J;
+            ++p;
+        } else if (*p == 'z') {
+            len_mod = VPL_LEN_Z;
+            ++p;
+        } else if (*p == 't') {
+            len_mod = VPL_LEN_T;
+            ++p;
+        } else if (*p == 'L') {
+            len_mod = VPL_LEN_CAP_L;
+            ++p;
+        }
+
+        conv = *p;
+        if (!conv) break;
+        ++p;
+
+        if (conv == 's') {
+            if (len_mod == VPL_LEN_L) {
+                va_arg(ap, const wchar_t *);
+            } else {
+                const char *s = va_arg(ap, const char *);
+                if (count < max_out) {
+                    out[count] = s;
+                }
+                count++;
+            }
+        } else if (conv == 'd' || conv == 'i') {
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, int);
+        } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, unsigned long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, unsigned long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, uintmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, unsigned int);
+        } else if (conv == 'c') {
+            va_arg(ap, int);
+        } else if (conv == 'p') {
+            va_arg(ap, void *);
+        } else if (conv == 'n') {
+            if (len_mod == VPL_LEN_HH)
+                va_arg(ap, signed char *);
+            else if (len_mod == VPL_LEN_H)
+                va_arg(ap, short *);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long *);
+            else if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long *);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t *);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t *);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t *);
+            else
+                va_arg(ap, int *);
+        } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
+                   conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
+            if (len_mod == VPL_LEN_CAP_L)
+                va_arg(ap, long double);
+            else
+                va_arg(ap, double);
+        }
+    }
+
+    va_end(ap);
+    return count;
+}
+
+/*
+ * Score a fmt_item candidate by counting how many of its arg keys match
+ * the actual %s argument values.
+ */
+static int score_fmt_item(const zh_fmt_item *fi,
+                          const char *str_args[], int str_count) {
+    int score = 0;
+    int i;
+    size_t j;
+
+    for (i = 0; i < str_count; ++i) {
+        if (!str_args[i]) continue;
+        for (j = 0; j < fi->arg_count; ++j) {
+            if (strcmp(str_args[i], fi->args[j].arg_en) == 0) {
+                score++;
+                break;
+            }
+        }
+    }
+    return score;
+}
+
+/*
+ * Find the best matching fmt_item for the given format string.
+ * When multiple items share the same fmt_en key (ambiguous entries from
+ * different source files), peek at the actual %s arguments in the va_list
+ * and return the candidate whose arg dictionary matches the most.
+ */
+static const zh_fmt_item *find_best_fmt_item(const char *fmt_en,
+                                             va_list args) {
+    size_t i;
+    const zh_fmt_item *first = NULL;
+    bool has_duplicate = false;
+
+    if (!fmt_en) {
+        return NULL;
+    }
+
+    /* Quick scan: find first match and check for duplicates */
+    for (i = 0; i < g_fmt_map_count; ++i) {
+        if (strcmp(fmt_en, g_fmt_map[i].fmt_en) == 0) {
+            if (!first) {
+                first = &g_fmt_map[i];
+            } else {
+                has_duplicate = true;
+                break;
+            }
+        }
+    }
+
+    if (!first) return NULL;
+    if (!has_duplicate) return first; /* fast path: unique key */
+
+    /* Multiple candidates – score each against actual %s args */
+    {
+        const char *str_args[MAX_FMT_ARG_ALLOCS];
+        int str_count;
+        const zh_fmt_item *best = first;
+        int best_score = -1;
+
+        str_count = collect_str_args(fmt_en, args, str_args,
+                                     MAX_FMT_ARG_ALLOCS);
+
+        for (i = 0; i < g_fmt_map_count; ++i) {
+            if (strcmp(fmt_en, g_fmt_map[i].fmt_en) == 0) {
+                int score = score_fmt_item(&g_fmt_map[i], str_args,
+                                           str_count);
+                if (score > best_score) {
+                    best_score = score;
+                    best = &g_fmt_map[i];
+                }
+            }
+        }
+
+        return best;
+    }
+}
+
 static void init_dump_file(void) {
     char exe_path[MAX_PATH];
     char *slash;
@@ -950,17 +1186,6 @@ static void dump_intercepted_text(const char *api_name, const char *text, int le
     LeaveCriticalSection(&g_dump_lock);
 }
 
-typedef enum {
-    VPL_LEN_NONE = 0,
-    VPL_LEN_HH,
-    VPL_LEN_H,
-    VPL_LEN_L,
-    VPL_LEN_LL,
-    VPL_LEN_J,
-    VPL_LEN_Z,
-    VPL_LEN_T,
-    VPL_LEN_CAP_L
-} vpline_len_mod;
 
 /*
  * Walk the format string + va_list, translate %s args in-place via the arg map.
@@ -968,7 +1193,7 @@ typedef enum {
  * so writing through the copy modifies what g_orig_vpline will later read.
  * Returns the number of heap strings stored in allocs[] (caller must free).
  */
-#define MAX_FMT_ARG_ALLOCS 16
+
 
 static int translate_vpline_args(const char *fmt, va_list args,
                                  const zh_fmt_item *fi,
@@ -986,30 +1211,57 @@ static int translate_vpline_args(const char *fmt, va_list args,
     while (*p) {
         len_mod = VPL_LEN_NONE;
 
-        if (*p != '%') { ++p; continue; }
+        if (*p != '%') {
+            ++p;
+            continue;
+        }
         ++p;
-        if (*p == '%') { ++p; continue; }
+        if (*p == '%') {
+            ++p;
+            continue;
+        }
 
         /* flags */
         while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') ++p;
         /* width */
-        if (*p == '*') { va_arg(ap, int); ++p; }
-        else { while (*p >= '0' && *p <= '9') ++p; }
+        if (*p == '*') {
+            va_arg(ap, int);
+            ++p;
+        } else { while (*p >= '0' && *p <= '9') ++p; }
         /* precision */
         if (*p == '.') {
             ++p;
-            if (*p == '*') { va_arg(ap, int); ++p; }
-            else { while (*p >= '0' && *p <= '9') ++p; }
+            if (*p == '*') {
+                va_arg(ap, int);
+                ++p;
+            } else { while (*p >= '0' && *p <= '9') ++p; }
         }
         /* length modifier */
-        if (*p == 'h' && *(p + 1) == 'h') { len_mod = VPL_LEN_HH; p += 2; }
-        else if (*p == 'h') { len_mod = VPL_LEN_H; ++p; }
-        else if (*p == 'l' && *(p + 1) == 'l') { len_mod = VPL_LEN_LL; p += 2; }
-        else if (*p == 'l') { len_mod = VPL_LEN_L; ++p; }
-        else if (*p == 'j') { len_mod = VPL_LEN_J; ++p; }
-        else if (*p == 'z') { len_mod = VPL_LEN_Z; ++p; }
-        else if (*p == 't') { len_mod = VPL_LEN_T; ++p; }
-        else if (*p == 'L') { len_mod = VPL_LEN_CAP_L; ++p; }
+        if (*p == 'h' && *(p + 1) == 'h') {
+            len_mod = VPL_LEN_HH;
+            p += 2;
+        } else if (*p == 'h') {
+            len_mod = VPL_LEN_H;
+            ++p;
+        } else if (*p == 'l' && *(p + 1) == 'l') {
+            len_mod = VPL_LEN_LL;
+            p += 2;
+        } else if (*p == 'l') {
+            len_mod = VPL_LEN_L;
+            ++p;
+        } else if (*p == 'j') {
+            len_mod = VPL_LEN_J;
+            ++p;
+        } else if (*p == 'z') {
+            len_mod = VPL_LEN_Z;
+            ++p;
+        } else if (*p == 't') {
+            len_mod = VPL_LEN_T;
+            ++p;
+        } else if (*p == 'L') {
+            len_mod = VPL_LEN_CAP_L;
+            ++p;
+        }
 
         conv = *p;
         if (!conv) break;
@@ -1024,51 +1276,92 @@ static int translate_vpline_args(const char *fmt, va_list args,
                 const char *s = va_arg(ap, const char *);
 
                 if (s) {
+                    bool matched = false;
                     for (j = 0; j < fi->arg_count; ++j) {
                         if (strcmp(s, fi->args[j].arg_en) == 0) {
-                        if (alloc_count < max_allocs) {
+                            if (alloc_count < max_allocs) {
                                 char *dup = _strdup(fi->args[j].arg_zh);
                                 if (dup) {
                                     *slot = dup;
                                     allocs[alloc_count++] = dup;
                                 }
                             }
+                            matched = true;
                             break;
+                        }
+                    }
+                    /* Fallback: exact then partial dictionary lookup */
+                    if (!matched && alloc_count < max_allocs) {
+                        const char *zh = translate_text(s, -1);
+                        if (zh != s) {
+                            char *dup = _strdup(zh);
+                            if (dup) {
+                                *slot = dup;
+                                allocs[alloc_count++] = dup;
+                            }
+                        } else {
+                            char *partial = translate_text_contains_alloc(s, -1);
+                            if (partial) {
+                                *slot = partial;
+                                allocs[alloc_count++] = partial;
+                            }
                         }
                     }
                 }
             }
         } else if (conv == 'd' || conv == 'i') {
-            if (len_mod == VPL_LEN_LL) va_arg(ap, long long);
-            else if (len_mod == VPL_LEN_L) va_arg(ap, long);
-            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t);
-            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
-            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
-            else va_arg(ap, int);
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, int);
         } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
-            if (len_mod == VPL_LEN_LL) va_arg(ap, unsigned long long);
-            else if (len_mod == VPL_LEN_L) va_arg(ap, unsigned long);
-            else if (len_mod == VPL_LEN_J) va_arg(ap, uintmax_t);
-            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
-            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
-            else va_arg(ap, unsigned int);
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, unsigned long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, unsigned long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, uintmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, unsigned int);
         } else if (conv == 'c') {
             va_arg(ap, int);
         } else if (conv == 'p') {
             va_arg(ap, void *);
         } else if (conv == 'n') {
-            if (len_mod == VPL_LEN_HH) va_arg(ap, signed char *);
-            else if (len_mod == VPL_LEN_H) va_arg(ap, short *);
-            else if (len_mod == VPL_LEN_L) va_arg(ap, long *);
-            else if (len_mod == VPL_LEN_LL) va_arg(ap, long long *);
-            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t *);
-            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t *);
-            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t *);
-            else va_arg(ap, int *);
+            if (len_mod == VPL_LEN_HH)
+                va_arg(ap, signed char *);
+            else if (len_mod == VPL_LEN_H)
+                va_arg(ap, short *);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long *);
+            else if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long *);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t *);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t *);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t *);
+            else
+                va_arg(ap, int *);
         } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
                    conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
-            if (len_mod == VPL_LEN_CAP_L) va_arg(ap, long double);
-            else va_arg(ap, double);
+            if (len_mod == VPL_LEN_CAP_L)
+                va_arg(ap, long double);
+            else
+                va_arg(ap, double);
         }
     }
 
@@ -1096,30 +1389,57 @@ static int translate_vpline_args_generic(const char *fmt, va_list args,
     while (*p) {
         len_mod = VPL_LEN_NONE;
 
-        if (*p != '%') { ++p; continue; }
+        if (*p != '%') {
+            ++p;
+            continue;
+        }
         ++p;
-        if (*p == '%') { ++p; continue; }
+        if (*p == '%') {
+            ++p;
+            continue;
+        }
 
         /* flags */
         while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') ++p;
         /* width */
-        if (*p == '*') { va_arg(ap, int); ++p; }
-        else { while (*p >= '0' && *p <= '9') ++p; }
+        if (*p == '*') {
+            va_arg(ap, int);
+            ++p;
+        } else { while (*p >= '0' && *p <= '9') ++p; }
         /* precision */
         if (*p == '.') {
             ++p;
-            if (*p == '*') { va_arg(ap, int); ++p; }
-            else { while (*p >= '0' && *p <= '9') ++p; }
+            if (*p == '*') {
+                va_arg(ap, int);
+                ++p;
+            } else { while (*p >= '0' && *p <= '9') ++p; }
         }
         /* length modifier */
-        if (*p == 'h' && *(p + 1) == 'h') { len_mod = VPL_LEN_HH; p += 2; }
-        else if (*p == 'h') { len_mod = VPL_LEN_H; ++p; }
-        else if (*p == 'l' && *(p + 1) == 'l') { len_mod = VPL_LEN_LL; p += 2; }
-        else if (*p == 'l') { len_mod = VPL_LEN_L; ++p; }
-        else if (*p == 'j') { len_mod = VPL_LEN_J; ++p; }
-        else if (*p == 'z') { len_mod = VPL_LEN_Z; ++p; }
-        else if (*p == 't') { len_mod = VPL_LEN_T; ++p; }
-        else if (*p == 'L') { len_mod = VPL_LEN_CAP_L; ++p; }
+        if (*p == 'h' && *(p + 1) == 'h') {
+            len_mod = VPL_LEN_HH;
+            p += 2;
+        } else if (*p == 'h') {
+            len_mod = VPL_LEN_H;
+            ++p;
+        } else if (*p == 'l' && *(p + 1) == 'l') {
+            len_mod = VPL_LEN_LL;
+            p += 2;
+        } else if (*p == 'l') {
+            len_mod = VPL_LEN_L;
+            ++p;
+        } else if (*p == 'j') {
+            len_mod = VPL_LEN_J;
+            ++p;
+        } else if (*p == 'z') {
+            len_mod = VPL_LEN_Z;
+            ++p;
+        } else if (*p == 't') {
+            len_mod = VPL_LEN_T;
+            ++p;
+        } else if (*p == 'L') {
+            len_mod = VPL_LEN_CAP_L;
+            ++p;
+        }
 
         conv = *p;
         if (!conv) break;
@@ -1158,36 +1478,58 @@ static int translate_vpline_args_generic(const char *fmt, va_list args,
                 }
             }
         } else if (conv == 'd' || conv == 'i') {
-            if (len_mod == VPL_LEN_LL) va_arg(ap, long long);
-            else if (len_mod == VPL_LEN_L) va_arg(ap, long);
-            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t);
-            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
-            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
-            else va_arg(ap, int);
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, int);
         } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
-            if (len_mod == VPL_LEN_LL) va_arg(ap, unsigned long long);
-            else if (len_mod == VPL_LEN_L) va_arg(ap, unsigned long);
-            else if (len_mod == VPL_LEN_J) va_arg(ap, uintmax_t);
-            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t);
-            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t);
-            else va_arg(ap, unsigned int);
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, unsigned long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, unsigned long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, uintmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, unsigned int);
         } else if (conv == 'c') {
             va_arg(ap, int);
         } else if (conv == 'p') {
             va_arg(ap, void *);
         } else if (conv == 'n') {
-            if (len_mod == VPL_LEN_HH) va_arg(ap, signed char *);
-            else if (len_mod == VPL_LEN_H) va_arg(ap, short *);
-            else if (len_mod == VPL_LEN_L) va_arg(ap, long *);
-            else if (len_mod == VPL_LEN_LL) va_arg(ap, long long *);
-            else if (len_mod == VPL_LEN_J) va_arg(ap, intmax_t *);
-            else if (len_mod == VPL_LEN_Z) va_arg(ap, size_t *);
-            else if (len_mod == VPL_LEN_T) va_arg(ap, ptrdiff_t *);
-            else va_arg(ap, int *);
+            if (len_mod == VPL_LEN_HH)
+                va_arg(ap, signed char *);
+            else if (len_mod == VPL_LEN_H)
+                va_arg(ap, short *);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long *);
+            else if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long *);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t *);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t *);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t *);
+            else
+                va_arg(ap, int *);
         } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
                    conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
-            if (len_mod == VPL_LEN_CAP_L) va_arg(ap, long double);
-            else va_arg(ap, double);
+            if (len_mod == VPL_LEN_CAP_L)
+                va_arg(ap, long double);
+            else
+                va_arg(ap, double);
         }
     }
 
@@ -1309,9 +1651,7 @@ static void dump_vpline_arguments(const char *fmt, va_list args) {
         if (!conv) {
             break;
         }
-        ++p;
-
-        {
+        ++p; {
             char spec[48];
             size_t spec_len = (size_t) (p - spec_start);
             char line[320];
@@ -1361,7 +1701,8 @@ static void dump_vpline_arguments(const char *fmt, va_list args) {
                 int ch = va_arg(ap, int);
                 ++arg_index;
                 if (ch >= 32 && ch <= 126) {
-                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> '%c' (%d)\r\n", arg_index, spec, (char) ch, ch);
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> '%c' (%d)\r\n", arg_index, spec, (char) ch,
+                                  ch);
                 } else {
                     n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> (%d)\r\n", arg_index, spec, ch);
                 }
@@ -1369,7 +1710,8 @@ static void dump_vpline_arguments(const char *fmt, va_list args) {
                 ++arg_index;
                 if (len_mod == VPL_LEN_L) {
                     const wchar_t *ws = va_arg(ap, const wchar_t *);
-                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> wide_str@%p\r\n", arg_index, spec, (const void *) ws);
+                    n = _snprintf(line, sizeof(line), "[vpline.arg%d] %s -> wide_str@%p\r\n", arg_index, spec,
+                                  (const void *) ws);
                 } else {
                     const char *s = va_arg(ap, const char *);
                     if (!s) {
@@ -2111,8 +2453,8 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
 
     split_vpline_prefix(line, &tail, &zh_prefix);
 
-    /* Check for fmt/arg format first */
-    fi = find_fmt_item(tail);
+    /* Check for fmt/arg format first (scores candidates on ambiguous keys) */
+    fi = find_best_fmt_item(tail, the_args);
     if (fi) {
         char *arg_allocs[MAX_FMT_ARG_ALLOCS];
         int alloc_count, i;
@@ -2150,7 +2492,7 @@ static void __cdecl hook_vpline(const char *line, va_list the_args) {
     /* Translate %s arguments generically when no fmt_item matched */
     if (has_printf_format_spec(tail)) {
         gen_alloc_count = translate_vpline_args_generic(tail, the_args,
-                                            gen_arg_allocs, MAX_FMT_ARG_ALLOCS);
+                                                        gen_arg_allocs, MAX_FMT_ARG_ALLOCS);
     }
 
     final_text = translated;
