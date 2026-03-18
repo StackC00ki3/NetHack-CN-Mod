@@ -6,6 +6,10 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 add_library(winmm SHARED
     src/winmm_proxy_main.c
+    src/zh_dump.c
+    src/zh_translate.c
+    src/zh_vpline.c
+    src/zh_hooks.c
     src/cJSON.c
     minhook/src/buffer.c
     minhook/src/hook.c
