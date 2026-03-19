@@ -8294,7 +8294,7 @@
     "%s %smisses!": {
       "fmt": "%s %s没打中!",
       "arg": {
-        "just": "恰好"
+        "just ": "恰好"
       }
     },
     "thrusts": "戳刺着",
