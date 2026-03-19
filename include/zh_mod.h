@@ -56,6 +56,7 @@ typedef struct {
 typedef struct {
     char *arg_en;
     char *arg_zh;
+    char *nested_fmt;  /* If non-NULL, use this fmt instead of simple replacement */
 } zh_arg_item;
 
 typedef struct {

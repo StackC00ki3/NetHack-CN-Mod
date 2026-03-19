@@ -243,10 +243,12 @@ static const zh_fmt_item *find_best_fmt_item(const char *fmt_en,
  * On Windows va_list is a plain char*; va_copy shares the underlying memory,
  * so writing through the copy modifies what g_orig_vpline will later read.
  * Returns the number of heap strings stored in allocs[] (caller must free).
+ * If a nested_fmt is triggered, *fmt_out is set to the nested format string.
  */
 static int translate_vpline_args(const char *fmt, va_list args,
                                  const zh_fmt_item *fi,
-                                 char *allocs[], int max_allocs) {
+                                 char *allocs[], int max_allocs,
+                                 const char **fmt_out) {
     va_list ap;
     const char *p;
     int alloc_count = 0;
@@ -256,6 +258,7 @@ static int translate_vpline_args(const char *fmt, va_list args,
 
     va_copy(ap, args);
     p = fmt;
+    *fmt_out = fi->fmt_zh;  /* Default to normal fmt */
 
     while (*p) {
         len_mod = VPL_LEN_NONE;
@@ -328,11 +331,28 @@ static int translate_vpline_args(const char *fmt, va_list args,
                     bool matched = false;
                     for (j = 0; j < fi->arg_count; ++j) {
                         if (strcmp(s, fi->args[j].arg_en) == 0) {
-                            if (alloc_count < max_allocs) {
-                                char *dup = _strdup(fi->args[j].arg_zh);
-                                if (dup) {
-                                    *slot = dup;
-                                    allocs[alloc_count++] = dup;
+                            /* Check if this arg has nested_fmt */
+                            if (fi->args[j].nested_fmt) {
+                                /* Use nested fmt and translate nested arg if present */
+                                *fmt_out = fi->args[j].nested_fmt;
+                                if (fi->args[j].arg_zh && fi->args[j].arg_zh[0]) {
+                                    if (alloc_count < max_allocs) {
+                                        char *dup = _strdup(fi->args[j].arg_zh);
+                                        if (dup) {
+                                            *slot = dup;
+                                            allocs[alloc_count++] = dup;
+                                        }
+                                    }
+                                }
+                                /* Don't process remaining args - nested fmt handles them */
+                            } else {
+                                /* Normal arg translation */
+                                if (alloc_count < max_allocs) {
+                                    char *dup = _strdup(fi->args[j].arg_zh);
+                                    if (dup) {
+                                        *slot = dup;
+                                        allocs[alloc_count++] = dup;
+                                    }
                                 }
                             }
                             matched = true;
@@ -677,7 +697,27 @@ void __cdecl hook_vpline(const char *line, va_list the_args) {
 
     split_vpline_prefix(line, &tail, &zh_prefix);
 
-    /* Check for fmt/arg format first (scores candidates on ambiguous keys) */
+    /* Check for fmt/arg format first for full line (scores candidates on ambiguous keys) */
+    fi = find_best_fmt_item(line, the_args);
+    if (fi) {
+        char *arg_allocs[MAX_FMT_ARG_ALLOCS];
+        int alloc_count, i;
+        const char *fmt_out = fi->fmt_zh;
+
+        alloc_count = translate_vpline_args(line, the_args, fi,
+                                            arg_allocs, MAX_FMT_ARG_ALLOCS, &fmt_out);
+
+        dump_intercepted_text("vpline.after", fmt_out, -1);
+        g_orig_vpline(fmt_out, the_args);
+
+        free(prefixed_alloc);
+
+        for (i = 0; i < alloc_count; ++i)
+            free(arg_allocs[i]);
+        return;
+    }
+
+    /* Check for fmt/arg format first for tail (scores candidates on ambiguous keys) */
     fi = find_best_fmt_item(tail, the_args);
     if (fi) {
         char *arg_allocs[MAX_FMT_ARG_ALLOCS];
@@ -685,9 +725,9 @@ void __cdecl hook_vpline(const char *line, va_list the_args) {
         const char *fmt_out = fi->fmt_zh;
 
         alloc_count = translate_vpline_args(tail, the_args, fi,
-                                            arg_allocs, MAX_FMT_ARG_ALLOCS);
+                                            arg_allocs, MAX_FMT_ARG_ALLOCS, &fmt_out);
         if (zh_prefix) {
-            prefixed_alloc = concat_two_alloc(zh_prefix, fi->fmt_zh);
+            prefixed_alloc = concat_two_alloc(zh_prefix, fmt_out);
             if (prefixed_alloc) {
                 fmt_out = prefixed_alloc;
             }

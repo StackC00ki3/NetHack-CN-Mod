@@ -6916,10 +6916,13 @@
       "fmt": "停了下来.  %s不能顺利通过.",
       "arg": {}
     },
-    "%s %s.": {
-      "fmt": "%s%s %s.",
+    "You %s %s.": {
+      "fmt": "你%s%s.",
       "arg": {
-        "swap places with": "和",
+        "swap places with": {
+          "fmt": "你和 %.0s%s 交换了位置",
+          "arg": ""
+        },
         "frighten": "把"
       }
     },

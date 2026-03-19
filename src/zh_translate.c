@@ -54,6 +54,7 @@ void free_fmt_map(void) {
         for (j = 0; j < g_fmt_map[i].arg_count; ++j) {
             free(g_fmt_map[i].args[j].arg_en);
             free(g_fmt_map[i].args[j].arg_zh);
+            free(g_fmt_map[i].args[j].nested_fmt);
         }
         free(g_fmt_map[i].args);
     }
@@ -187,8 +188,9 @@ static bool add_fmt_item(const char *en, cJSON *obj) {
     if (arg_node && cJSON_IsObject(arg_node)) {
         cJSON_ArrayForEach(arg_item, arg_node) {
             zh_arg_item *arg_items;
+            cJSON *nested_fmt_node;
 
-            if (!arg_item->string || !cJSON_IsString(arg_item)) {
+            if (!arg_item->string) {
                 continue;
             }
 
@@ -199,8 +201,29 @@ static bool add_fmt_item(const char *en, cJSON *obj) {
             }
             fi->args = arg_items;
             fi->args[fi->arg_count].arg_en = dup_string(arg_item->string);
-            fi->args[fi->arg_count].arg_zh = dup_string(
-                arg_item->valuestring ? arg_item->valuestring : "");
+            fi->args[fi->arg_count].nested_fmt = NULL;
+
+            /* Check if arg value is a nested object with "fmt" field */
+            if (cJSON_IsObject(arg_item)) {
+                nested_fmt_node = cJSON_GetObjectItemCaseSensitive(arg_item, "fmt");
+                if (nested_fmt_node && cJSON_IsString(nested_fmt_node) && nested_fmt_node->valuestring) {
+                    fi->args[fi->arg_count].nested_fmt = dup_string(nested_fmt_node->valuestring);
+                    /* For nested fmt, arg_zh can be from "arg" field or empty */
+                    cJSON *nested_arg_node = cJSON_GetObjectItemCaseSensitive(arg_item, "arg");
+                    fi->args[fi->arg_count].arg_zh = dup_string(
+                        (nested_arg_node && cJSON_IsString(nested_arg_node) && nested_arg_node->valuestring)
+                        ? nested_arg_node->valuestring : "");
+                } else {
+                    fi->args[fi->arg_count].arg_zh = dup_string("");
+                }
+            } else if (cJSON_IsString(arg_item)) {
+                /* Simple string value */
+                fi->args[fi->arg_count].arg_zh = dup_string(
+                    arg_item->valuestring ? arg_item->valuestring : "");
+            } else {
+                fi->args[fi->arg_count].arg_zh = dup_string("");
+            }
+
             fi->arg_count++;
         }
     }
