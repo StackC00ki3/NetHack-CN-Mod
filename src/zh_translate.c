@@ -87,6 +87,92 @@ void free_tmpl_map(void) {
     g_tmpl_map_count = 0;
 }
 
+/* ---------- makesingular port from NetHack objnam.c ---------- */
+
+/*
+ * Simplified makesingular() from NetHack's objnam.c
+ * Converts English plural words to singular form for better dictionary matching.
+ * Used only in partial matching to allow "bites" to match "bite": "咬"
+ */
+static char *zh_makesingular(const char *oldstr, char *buf, size_t bufsize) {
+    char *p;
+    char *bp;
+    size_t len;
+
+    if (!oldstr || !buf || bufsize < 2) {
+        if (buf && bufsize > 0) buf[0] = '\0';
+        return buf;
+    }
+
+    /* Skip leading spaces */
+    while (*oldstr == ' ') oldstr++;
+    if (!*oldstr) {
+        buf[0] = '\0';
+        return buf;
+    }
+
+    len = strlen(oldstr);
+    if (len >= bufsize) len = bufsize - 1;
+    memcpy(buf, oldstr, len);
+    buf[len] = '\0';
+
+    bp = buf;
+    p = bp + len;  /* points to '\0' */
+
+    /* Handle "foo of bar" - focus on "foo" only */
+    {
+        char *of_pos = strstr(bp, " of ");
+        if (of_pos) {
+            p = of_pos;
+            *p = '\0';
+        }
+    }
+
+    /* Remove -s or -es or -ies */
+    if (p >= bp + 1 && (p[-1] == 's' || p[-1] == 'S')) {
+        if (p >= bp + 2 && (p[-2] == 'e' || p[-2] == 'E')) {
+            if (p >= bp + 3 && (p[-3] == 'i' || p[-3] == 'I')) {
+                /* "ies" -> "y" (e.g., "berries" -> "berry") */
+                p[-3] = (p[-3] == 'I') ? 'Y' : 'y';
+                p[-2] = '\0';
+                return buf;
+            }
+            /* "ves" -> "f" (e.g., "wolves" -> "wolf") */
+            if (p >= bp + 4 && (p[-3] == 'v' || p[-3] == 'V')
+                && (p[-4] == 'l' || p[-4] == 'r' || strchr("aeiouAEIOU", p[-4]))) {
+                p[-3] = (p[-3] == 'V') ? 'F' : 'f';
+                p[-2] = '\0';
+                return buf;
+            }
+            /* "xes", "ches", "ses" -> drop "es" */
+            if (p >= bp + 4 && (p[-3] == 'x' || p[-3] == 'X'
+                                || p[-3] == 'h' || p[-3] == 'H'
+                                || p[-3] == 's' || p[-3] == 'S')) {
+                p[-2] = '\0';
+                return buf;
+            }
+        } else if (p >= bp + 2 && (p[-2] == 'u' || p[-2] == 'U')
+                   && (p[-1] == 's' || p[-1] == 'S')) {
+            /* "us" ending - keep as-is (e.g., "lotus", "fungus") */
+            return buf;
+        } else if (p >= bp + 2 && p[-2] == 's') {
+            /* "ss" ending - keep as-is (e.g., "glass") */
+            return buf;
+        }
+        /* Simple -s removal */
+        p[-1] = '\0';
+    } else if (p >= bp + 3 && (p[-3] == 'm' || p[-3] == 'M')
+               && (p[-2] == 'e' || p[-2] == 'E')
+               && (p[-1] == 'n' || p[-1] == 'N')) {
+        /* "men" -> "man" (e.g., "guardsmen" -> "guardsman") */
+        p[-2] = (p[-2] == 'E') ? 'A' : 'a';
+        p[-1] = (p[-1] == 'N') ? 'N' : 'n';
+        return buf;
+    }
+
+    return buf;
+}
+
 static char *dup_string(const char *src) {
     size_t n;
     char *dst;
@@ -1011,6 +1097,8 @@ char *translate_text_contains_alloc(const char *src, int length) {
     char *from_runtime;
     char *from_builtin;
     char *from_tmpl;
+    char singular_buf[512];
+    const char *singular_src;
     size_t i;
 
     if (!should_translate(src, length)) {
@@ -1033,6 +1121,21 @@ char *translate_text_contains_alloc(const char *src, int length) {
     from_builtin = replace_from_builtin_map(src, length);
     if (from_builtin) {
         return from_builtin;
+    }
+
+    /* Try singular form if original didn't match (e.g., "bites" -> "bite") */
+    singular_src = zh_makesingular(src, singular_buf, sizeof(singular_buf));
+    if (singular_src && singular_src[0] && strcmp(singular_src, src) != 0) {
+        /* Singular form is different from original, try matching it */
+        from_runtime = replace_from_runtime_map(singular_src, -1);
+        if (from_runtime) {
+            return from_runtime;
+        }
+
+        from_builtin = replace_from_builtin_map(singular_src, -1);
+        if (from_builtin) {
+            return from_builtin;
+        }
     }
 
     return NULL;

@@ -6385,6 +6385,14 @@
         "killed": "杀死了"
       }
     },
+    "%s is %s%s%s!": {
+      "fmt": "%s 被%s%s%s!",
+      "arg": {
+        "burned completely": "烧为灰烬",
+        "destroyed": "消灭了",
+        "killed": "杀死了"
+      }
+    },
     "are caught in the %s!": {
       "fmt": "被卷入了%s!",
       "arg": {}
@@ -7914,6 +7922,7 @@
       "fmt": "%s没打中",
       "arg": {}
     },
+    "miss": "没打中",
     "%s releases you!": {
       "fmt": "%s 放出了你!",
       "arg": {}
@@ -11439,7 +11448,7 @@
       "arg": {}
     },
     "%s %s": {
-      "fmt": "%s%s",
+      "fmt": "%s %s",
       "arg": {}
     },
     "with text \"%s\"": {
@@ -11561,23 +11570,10 @@
     },
     "samurai sword": "武士刀",
     "wizard lock": "巫师锁",
-    "ninja": "wizard",
     "master key": "忍者大刀",
-    "master": "ninja",
-    "magenta": "万能钥匙",
-    "mage": "master",
     "holy water": "圣水",
     "gold piece": "金币",
-    "enchant": "防具附魔",
-    "destroy": "防具毁坏",
-    "detect food": "武器附魔",
     "food detection": "探测食物",
-    "ring mail": "食物探测",
-    "studded leather armor": "长柄武器",
-    "leather armor": "红宝石",
-    "tooled horn": "蓝宝石",
-    "food ration": "海蓝宝石",
-    "meat ring": "黄宝石",
     "versus poison": "毒抗",
     "bear": "捕兽",
     "land": "地",
@@ -20913,5 +20909,11 @@
   "tin": "罐头",
   "tins": "罐头",
   "the ": "",
-  "the": ""
+  "the": "",
+  "You hear %s%s.": {
+    "fmt": "你听见 %s%s.",
+    "arg": {}
+  },
+  "noise": "声响",
+  "(weapon in hands)": "(手持中)"
 }
