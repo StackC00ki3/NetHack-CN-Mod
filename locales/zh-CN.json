@@ -20908,12 +20908,13 @@
   "C-rations": "C口粮",
   "tin": "罐头",
   "tins": "罐头",
-  "the ": "",
   "the": "",
   "You hear %s%s.": {
     "fmt": "你听见 %s%s.",
     "arg": {}
   },
   "noise": "声响",
-  "(weapon in hands)": "(手持中)"
+  "noises": "声响",
+  "(weapon in hands)": "(手持中)",
+  "(weapon in hand)": "(手持中)"
 }
