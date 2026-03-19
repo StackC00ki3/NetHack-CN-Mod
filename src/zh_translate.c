@@ -1097,6 +1097,9 @@ char *translate_text_contains_alloc(const char *src, int length) {
     char *from_runtime;
     char *from_builtin;
     char *from_tmpl;
+    char *current = NULL;
+    const char *stage_input = src;
+    int stage_len = length;
     char singular_buf[512];
     const char *singular_src;
     size_t i;
@@ -1113,30 +1116,44 @@ char *translate_text_contains_alloc(const char *src, int length) {
         }
     }
 
-    from_runtime = replace_from_runtime_map(src, length);
+    /* Pipeline: runtime -> builtin -> singular fallback. */
+    from_runtime = replace_from_runtime_map(stage_input, stage_len);
     if (from_runtime) {
-        return from_runtime;
+        current = from_runtime;
+        stage_input = current;
+        stage_len = -1;
     }
 
-    from_builtin = replace_from_builtin_map(src, length);
+    from_builtin = replace_from_builtin_map(stage_input, stage_len);
     if (from_builtin) {
-        return from_builtin;
+        if (current) {
+            free(current);
+        }
+        current = from_builtin;
+        stage_input = current;
+        stage_len = -1;
     }
 
-    /* Try singular form if original didn't match (e.g., "bites" -> "bite") */
-    singular_src = zh_makesingular(src, singular_buf, sizeof(singular_buf));
-    if (singular_src && singular_src[0] && strcmp(singular_src, src) != 0) {
+    /* Try singular form after chained runtime/builtin replacements. */
+    singular_src = zh_makesingular(stage_input, singular_buf, sizeof(singular_buf));
+    if (singular_src && singular_src[0] && strcmp(singular_src, stage_input) != 0) {
         /* Singular form is different from original, try matching it */
         from_runtime = replace_from_runtime_map(singular_src, -1);
         if (from_runtime) {
+            if (current) {
+                free(current);
+            }
             return from_runtime;
         }
 
         from_builtin = replace_from_builtin_map(singular_src, -1);
         if (from_builtin) {
+            if (current) {
+                free(current);
+            }
             return from_builtin;
         }
     }
 
-    return NULL;
+    return current;
 }
