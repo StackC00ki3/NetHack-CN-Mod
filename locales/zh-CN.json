@@ -6281,7 +6281,7 @@
       "arg": {}
     },
     "%s the %s with your %s.": {
-      "fmt": "用你的%s%s到%s上.",
+      "fmt": "用你的%3$s%2$s到%1$s上.",
       "arg": {}
     },
     "What do you want to %s the %s here?": {
@@ -7912,8 +7912,8 @@
       "fmt": "片刻有一种%s的感觉, 然后消失了.",
       "arg": {}
     },
-    "an explosion": "远处的",
-    "in the distance": "爆炸声",
+    "an explosion": "爆炸声",
+    "in the distance": "远处的",
     "%s pretends to be friendly to": {
       "fmt": "%s假装友好地对",
       "arg": {}
@@ -12362,17 +12362,25 @@
       "fmt": "%s什么?",
       "arg": {}
     },
+    "Look inside the %s": {
+      "tmpl": "查看%s的里面",
+      "arg": {}
+    },
     "Look inside %s": {
       "tmpl": "查看%s的里面",
       "arg": {}
     },
     "take %s out": {
       "tmpl": "取出%s",
-      "arg": {}
+      "arg": {
+        "something": "一些东西"
+      }
     },
     "put %s in": {
       "tmpl": "放入%s",
-      "arg": {}
+      "arg": {
+        "something": "一些东西"
+      }
     },
     "%stake out, then put in": {
       "tmpl": "%s取出, 然后放入",
@@ -12385,6 +12393,10 @@
       "arg": {
         "both reversed; ": "先"
       }
+    },
+    "stash one item into the %s": {
+      "tmpl": "把一项藏匿到%s",
+      "arg": {}
     },
     "stash one item into %s": {
       "tmpl": "把一项藏匿到%s",
@@ -20908,6 +20920,7 @@
   "C-rations": "C口粮",
   "tin": "罐头",
   "tins": "罐头",
+  " the ": " ",
   "the": "",
   "You hear %s%s.": {
     "fmt": "你听见 %s%s.",
@@ -20916,5 +20929,8 @@
   "noise": "声响",
   "noises": "声响",
   "(weapon in hands)": "(手持中)",
-  "(weapon in hand)": "(手持中)"
+  "(weapon in hand)": "(手持中)",
+  "is empty": "是空的",
+  "are empty": "是空的",
+  "here;": ""
 }
