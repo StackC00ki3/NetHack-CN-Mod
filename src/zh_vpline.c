@@ -161,6 +161,323 @@ static int collect_str_args(const char *fmt, va_list args,
 }
 
 /*
+ * Collect writable slots of %s arguments from va_list walking by fmt order.
+ * The returned slots point into the underlying argument area used by va_list.
+ */
+static int collect_str_slots(const char *fmt, va_list args,
+                             const char **slots[], int max_slots) {
+    va_list ap;
+    const char *p;
+    int count = 0;
+    vpline_len_mod len_mod;
+    char conv;
+
+    va_copy(ap, args);
+    p = fmt;
+
+    while (*p) {
+        len_mod = VPL_LEN_NONE;
+
+        if (*p != '%') {
+            ++p;
+            continue;
+        }
+        ++p;
+        if (*p == '%') {
+            ++p;
+            continue;
+        }
+
+        /* flags */
+        while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') ++p;
+        /* width */
+        if (*p == '*') {
+            va_arg(ap, int);
+            ++p;
+        } else { while (*p >= '0' && *p <= '9') ++p; }
+        /* precision */
+        if (*p == '.') {
+            ++p;
+            if (*p == '*') {
+                va_arg(ap, int);
+                ++p;
+            } else { while (*p >= '0' && *p <= '9') ++p; }
+        }
+        /* length modifier */
+        if (*p == 'h' && *(p + 1) == 'h') {
+            len_mod = VPL_LEN_HH;
+            p += 2;
+        } else if (*p == 'h') {
+            len_mod = VPL_LEN_H;
+            ++p;
+        } else if (*p == 'l' && *(p + 1) == 'l') {
+            len_mod = VPL_LEN_LL;
+            p += 2;
+        } else if (*p == 'l') {
+            len_mod = VPL_LEN_L;
+            ++p;
+        } else if (*p == 'j') {
+            len_mod = VPL_LEN_J;
+            ++p;
+        } else if (*p == 'z') {
+            len_mod = VPL_LEN_Z;
+            ++p;
+        } else if (*p == 't') {
+            len_mod = VPL_LEN_T;
+            ++p;
+        } else if (*p == 'L') {
+            len_mod = VPL_LEN_CAP_L;
+            ++p;
+        }
+
+        conv = *p;
+        if (!conv) break;
+        ++p;
+
+        if (conv == 's') {
+            if (len_mod == VPL_LEN_L) {
+                va_arg(ap, const wchar_t *);
+            } else {
+                const char **slot = (const char **) ap;
+                va_arg(ap, const char *);
+                if (count < max_slots) {
+                    slots[count] = slot;
+                }
+                count++;
+            }
+        } else if (conv == 'd' || conv == 'i') {
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, int);
+        } else if (conv == 'u' || conv == 'o' || conv == 'x' || conv == 'X') {
+            if (len_mod == VPL_LEN_LL)
+                va_arg(ap, unsigned long long);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, unsigned long);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, uintmax_t);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t);
+            else
+                va_arg(ap, unsigned int);
+        } else if (conv == 'c') {
+            va_arg(ap, int);
+        } else if (conv == 'p') {
+            va_arg(ap, void *);
+        } else if (conv == 'n') {
+            if (len_mod == VPL_LEN_HH)
+                va_arg(ap, signed char *);
+            else if (len_mod == VPL_LEN_H)
+                va_arg(ap, short *);
+            else if (len_mod == VPL_LEN_L)
+                va_arg(ap, long *);
+            else if (len_mod == VPL_LEN_LL)
+                va_arg(ap, long long *);
+            else if (len_mod == VPL_LEN_J)
+                va_arg(ap, intmax_t *);
+            else if (len_mod == VPL_LEN_Z)
+                va_arg(ap, size_t *);
+            else if (len_mod == VPL_LEN_T)
+                va_arg(ap, ptrdiff_t *);
+            else
+                va_arg(ap, int *);
+        } else if (conv == 'a' || conv == 'A' || conv == 'e' || conv == 'E' ||
+                   conv == 'f' || conv == 'F' || conv == 'g' || conv == 'G') {
+            if (len_mod == VPL_LEN_CAP_L)
+                va_arg(ap, long double);
+            else
+                va_arg(ap, double);
+        }
+    }
+
+    va_end(ap);
+    return count;
+}
+
+/*
+ * Convert positional %n$s to plain %s and return mapping between output
+ * %s order and input %s order (1-based in order_map entries).
+ */
+static bool normalize_positional_s_format(const char *fmt_in,
+                                          char **fmt_out_alloc,
+                                          int order_map[],
+                                          int max_order,
+                                          int *order_count_out) {
+    const char *p;
+    char *out;
+    char *w;
+    int order_count = 0;
+    int implicit_index = 1;
+    bool found_positional = false;
+
+    if (!fmt_in || !fmt_out_alloc || !order_map || !order_count_out) {
+        return false;
+    }
+
+    out = (char *) malloc(strlen(fmt_in) + 1);
+    if (!out) {
+        return false;
+    }
+
+    p = fmt_in;
+    w = out;
+
+    while (*p) {
+        if (*p != '%') {
+            *w++ = *p++;
+            continue;
+        }
+
+        *w++ = *p++; /* copy '%' */
+
+        if (*p == '%') {
+            *w++ = *p++;
+            continue;
+        }
+
+        {
+            const char *spec_start = p;
+            const char *q = p;
+            int positional = 0;
+
+            while (*q >= '0' && *q <= '9') {
+                positional = positional * 10 + (*q - '0');
+                ++q;
+            }
+            if (q > spec_start && *q == '$') {
+                found_positional = true;
+                p = q + 1; /* skip n$ */
+            }
+
+            /* Copy rest of conversion and capture final specifier */
+            {
+                vpline_len_mod len_mod = VPL_LEN_NONE;
+                char conv;
+
+                while (*p == '-' || *p == '+' || *p == ' ' || *p == '#' || *p == '0') {
+                    *w++ = *p++;
+                }
+                if (*p == '*') {
+                    *w++ = *p++;
+                } else {
+                    while (*p >= '0' && *p <= '9') {
+                        *w++ = *p++;
+                    }
+                }
+                if (*p == '.') {
+                    *w++ = *p++;
+                    if (*p == '*') {
+                        *w++ = *p++;
+                    } else {
+                        while (*p >= '0' && *p <= '9') {
+                            *w++ = *p++;
+                        }
+                    }
+                }
+
+                if (*p == 'h' && *(p + 1) == 'h') {
+                    *w++ = *p++;
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_HH;
+                } else if (*p == 'h') {
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_H;
+                } else if (*p == 'l' && *(p + 1) == 'l') {
+                    *w++ = *p++;
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_LL;
+                } else if (*p == 'l') {
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_L;
+                } else if (*p == 'j') {
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_J;
+                } else if (*p == 'z') {
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_Z;
+                } else if (*p == 't') {
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_T;
+                } else if (*p == 'L') {
+                    *w++ = *p++;
+                    len_mod = VPL_LEN_CAP_L;
+                }
+
+                conv = *p;
+                if (!conv) {
+                    break;
+                }
+                *w++ = *p++;
+
+                if (conv == 's' && len_mod != VPL_LEN_L) {
+                    int mapped_index = positional > 0 ? positional : implicit_index;
+                    if (order_count < max_order) {
+                        order_map[order_count] = mapped_index;
+                    }
+                    order_count++;
+                    implicit_index++;
+                }
+            }
+        }
+    }
+
+    *w = '\0';
+
+    if (!found_positional) {
+        free(out);
+        return false;
+    }
+
+    *fmt_out_alloc = out;
+    *order_count_out = order_count;
+    return true;
+}
+
+static void reorder_str_slots_for_positional_fmt(const char *src_fmt,
+                                                 va_list args,
+                                                 const int order_map[],
+                                                 int order_count) {
+    const char **slots[MAX_FMT_ARG_ALLOCS];
+    const char *snapshot[MAX_FMT_ARG_ALLOCS];
+    int slot_count;
+    int i;
+
+    if (!src_fmt || !order_map || order_count <= 0) {
+        return;
+    }
+
+    slot_count = collect_str_slots(src_fmt, args, slots, MAX_FMT_ARG_ALLOCS);
+    if (slot_count <= 0) {
+        return;
+    }
+    if (slot_count > MAX_FMT_ARG_ALLOCS) {
+        slot_count = MAX_FMT_ARG_ALLOCS;
+    }
+
+    for (i = 0; i < slot_count; ++i) {
+        snapshot[i] = *slots[i];
+    }
+
+    for (i = 0; i < order_count && i < slot_count; ++i) {
+        int src_index = order_map[i] - 1;
+        if (src_index >= 0 && src_index < slot_count) {
+            *slots[i] = snapshot[src_index];
+        }
+    }
+}
+
+/*
  * Score a fmt_item candidate by counting how many of its arg keys match
  * the actual %s argument values.
  */
@@ -701,15 +1018,27 @@ void __cdecl hook_vpline(const char *line, va_list the_args) {
     fi = find_best_fmt_item(line, the_args);
     if (fi) {
         char *arg_allocs[MAX_FMT_ARG_ALLOCS];
+        char *normalized_fmt = NULL;
+        int order_map[MAX_FMT_ARG_ALLOCS];
+        int order_count = 0;
         int alloc_count, i;
         const char *fmt_out = fi->fmt_zh;
 
         alloc_count = translate_vpline_args(line, the_args, fi,
                                             arg_allocs, MAX_FMT_ARG_ALLOCS, &fmt_out);
 
+        if (normalize_positional_s_format(fmt_out, &normalized_fmt,
+                                          order_map, MAX_FMT_ARG_ALLOCS,
+                                          &order_count)) {
+            reorder_str_slots_for_positional_fmt(line, the_args,
+                                                 order_map, order_count);
+            fmt_out = normalized_fmt;
+        }
+
         dump_intercepted_text("vpline.after", fmt_out, -1);
         g_orig_vpline(fmt_out, the_args);
 
+        free(normalized_fmt);
         free(prefixed_alloc);
 
         for (i = 0; i < alloc_count; ++i)
@@ -721,11 +1050,23 @@ void __cdecl hook_vpline(const char *line, va_list the_args) {
     fi = find_best_fmt_item(tail, the_args);
     if (fi) {
         char *arg_allocs[MAX_FMT_ARG_ALLOCS];
+        char *normalized_fmt = NULL;
         int alloc_count, i;
+        int order_map[MAX_FMT_ARG_ALLOCS];
+        int order_count = 0;
         const char *fmt_out = fi->fmt_zh;
 
         alloc_count = translate_vpline_args(tail, the_args, fi,
                                             arg_allocs, MAX_FMT_ARG_ALLOCS, &fmt_out);
+
+        if (normalize_positional_s_format(fmt_out, &normalized_fmt,
+                                          order_map, MAX_FMT_ARG_ALLOCS,
+                                          &order_count)) {
+            reorder_str_slots_for_positional_fmt(tail, the_args,
+                                                 order_map, order_count);
+            fmt_out = normalized_fmt;
+        }
+
         if (zh_prefix) {
             prefixed_alloc = concat_two_alloc(zh_prefix, fmt_out);
             if (prefixed_alloc) {
@@ -736,6 +1077,7 @@ void __cdecl hook_vpline(const char *line, va_list the_args) {
         dump_intercepted_text("vpline.after", fmt_out, -1);
         g_orig_vpline(fmt_out, the_args);
 
+        free(normalized_fmt);
         free(prefixed_alloc);
 
         for (i = 0; i < alloc_count; ++i)
