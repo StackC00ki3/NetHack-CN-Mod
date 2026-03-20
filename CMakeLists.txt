@@ -44,6 +44,8 @@ set_target_properties(winmm PROPERTIES
     OUTPUT_NAME "winmm"
 )
 
+set_source_files_properties(resources/winmm_zh_proxy.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/locales/zh-CN.json")
+
 # Optional: copy only winmm.dll to a drop-in directory after build.
 set(WINMM_DROPIN_DIR "" CACHE PATH "Directory to copy built winmm.dll into")
 if(WINMM_DROPIN_DIR)
@@ -56,12 +58,6 @@ if(WINMM_DROPIN_DIR)
         VERBATIM
     )
 endif()
-
-set(RES_FILES "locales/zh-CN.json")
-
-foreach(FILE ${RES_FILES})
-    configure_file(${FILE} ${CMAKE_CURRENT_BINARY_DIR}/${FILE} COPYONLY)
-endforeach()
 
 # Keep stable export names across toolchains.
 if(MSVC)
